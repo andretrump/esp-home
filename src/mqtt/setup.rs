@@ -9,8 +9,12 @@ pub fn setup(
     mqtt_user: &str,
     mqtt_password: &str,
     mqtt_host: &str,
+    mqtt_port: &str,
 ) -> Result<(EspMqttClient<'static>, Receiver<(String, String)>), EspError> {
-    let broker_url = format!("mqtt://{}:{}@{}", mqtt_user, mqtt_password, mqtt_host);
+    let broker_url = format!(
+        "mqtt://{}:{}@{}:{}",
+        mqtt_user, mqtt_password, mqtt_host, mqtt_port
+    );
     let (sender, receiver) = channel::<(String, String)>();
     let mqtt_client = EspMqttClient::new_cb(
         &broker_url,

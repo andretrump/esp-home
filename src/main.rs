@@ -2,28 +2,16 @@ use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
+use plant_tower_rs::captive_portal::CaptivePortal;
+use plant_tower_rs::hardware::{self, NvsManager};
 use plant_tower_rs::interface::Switchable;
 use plant_tower_rs::mqtt::{self, Component};
-use plant_tower_rs::{hardware, wifi};
+use plant_tower_rs::wifi::WifiManager;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
-
-#[toml_cfg::toml_config]
-pub struct Config {
-    #[default("")]
-    mqtt_host: &'static str,
-    #[default("")]
-    mqtt_user: &'static str,
-    #[default("")]
-    mqtt_password: &'static str,
-    #[default("")]
-    wifi_ssid: &'static str,
-    #[default("")]
-    wifi_password: &'static str,
-}
 
 enum Components {
     PumpSwitch,
@@ -42,28 +30,81 @@ fn main() {
     esp_idf_svc::log::EspLogger::initialize_default();
     let peripherals = Peripherals::take().expect("Failed to initialize peripherals");
     let sys_loop = EspSystemEventLoop::take().expect("Failed to initialize system loop");
-    let nvs = EspDefaultNvsPartition::take().expect("Failed to initialize NVS");
-    let app_config = CONFIG;
+    let nvs_default_partition = EspDefaultNvsPartition::take().expect("Failed to initialize NVS");
 
-    let _wifi = wifi::setup(
-        peripherals.modem,
-        sys_loop.clone(),
-        nvs.clone(),
-        app_config.wifi_ssid,
-        app_config.wifi_password,
+    let config_properties = HashMap::from([
+        (String::from("mqtt_host"), 512),
+        (String::from("mqtt_port"), 512),
+        (String::from("mqtt_user"), 512),
+        (String::from("mqtt_password"), 512),
+        (String::from("wifi_ssid"), 512),
+        (String::from("wifi_password"), 512),
+        (String::from("mqtt_dev_name"), 512),
+        (String::from("mqtt_dev_id"), 512),
+    ]);
+    let mut nvs_manager = NvsManager::new(
+        nvs_default_partition.clone(),
+        String::from("PLANT_TWR_CFG"),
+        config_properties.clone(),
     )
-    .expect("Failed to setup Wifi");
+    .expect("Failed to create NvsManager");
+
+    let mut wifi_manager =
+        WifiManager::new(peripherals.modem, sys_loop, nvs_default_partition.clone())
+            .expect("Failed to initialize Wifi");
+    wifi_manager
+        .to_access_point_mode("Plant Tower Rust")
+        .expect("Failed to start access point");
+
+    let ip_address = wifi_manager
+        .ip_address()
+        .expect("Failed to get own IP address");
+    log::info!("AP IP address: {}", ip_address);
+
+    let captive_portal =
+        CaptivePortal::new(ip_address, config_properties.keys().cloned().collect())
+            .expect("Failed to bootstrap captive portal");
+    captive_portal
+        .run(&mut nvs_manager)
+        .expect("Failed to run captive portal");
+
+    let config = nvs_manager
+        .load_all_properties()
+        .expect("Failed to load config from NVS");
+
+    wifi_manager
+        .to_client_mode(
+            config
+                .get("wifi_ssid")
+                .expect("WiFi SSID is not set")
+                .as_str(),
+            config
+                .get("wifi_password")
+                .expect("WiFi password is not set")
+                .as_str(),
+        )
+        .expect("Failed to setup Wifi");
 
     let (mut mqtt_client, receiver) = mqtt::setup(
-        app_config.mqtt_user,
-        app_config.mqtt_password,
-        app_config.mqtt_host,
+        config.get("mqtt_user").expect("MQTT user not set").as_str(),
+        config
+            .get("mqtt_password")
+            .expect("MQTT password not set")
+            .as_str(),
+        config.get("mqtt_host").expect("MQTT host not set").as_str(),
+        config.get("mqtt_port").expect("MQTT port not set").as_str(),
     )
     .expect("Failed to setup MQTT");
 
     let mut plant_tower = mqtt::Device::new(
-        String::from("plant_tower_rs"),
-        String::from("Plant Tower Rust"),
+        config
+            .get("mqtt_dev_id")
+            .expect("MQTT device name not set")
+            .clone(),
+        config
+            .get("mqtt_dev_name")
+            .expect("MQTT device ID not set")
+            .clone(),
         String::from("Myself"),
     );
     let pump_switch = Rc::new(RefCell::new(mqtt::Switch::new(

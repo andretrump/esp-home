@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ESP32 Konfiguration</title>
+
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js"></script>
+</head>
+
+<body>
+
+    <form action="/save" method="POST">
+
+        <h3>WLAN</h3>
+        <input name="wifi_ssid" placeholder="WLAN Name" required>
+        <input id="wifi_pass" name="wifi_password" type="password" placeholder="WLAN Passwort">
+        <div class="checkbox-inline">
+            <input type="checkbox" onclick="toggle('wifi_pass')">
+            Passwort anzeigen
+        </div>
+
+        <h3>MQTT Broker</h3>
+        <input name="mqtt_host" placeholder="MQTT Server (IP oder Hostname)" required>
+        <input name="mqtt_port" type="number" value="1883" placeholder="MQTT Port">
+        <input name="mqtt_user" placeholder="MQTT Benutzer">
+        <input id="mqtt_password" name="mqtt_password" type="password" placeholder="MQTT Passwort">
+        <div class="checkbox-inline">
+            <input type="checkbox" onclick="toggle('mqtt_password')">
+            Passwort anzeigen
+        </div>
+
+        <h3>MQTT Gerätename & ID festlegen</h3>
+        <input name="mqtt_dev_name" placeholder="MQTT Gerätename" required>
+        <input name="mqtt_dev_id" placeholder="Eindeutige MQTT Geräte-ID">
+
+        <p>Stelle vor dem Speichern sicher, dass alle Einstellungen korrekt sind und dass die Verbindung mit dem WLAN
+            und
+            MQTT-Broker hergestellt werden kann!</p>
+        <button type="submit">Speichern</button>
+
+    </form>
+
+</body>
+
+</html>

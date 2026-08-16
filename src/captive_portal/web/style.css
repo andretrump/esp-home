@@ -1,0 +1,46 @@
+body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+
+h2 {
+    margin-bottom: 10px;
+}
+
+h3 {
+    margin-top: 10px;
+    margin-bottom: 0px;
+}
+
+p {
+    font-size: 12px;
+}
+
+form {
+    max-width: 420px;
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+input {
+    margin-top: 5px;
+    font-size: 16px;
+    padding: 10px;
+}
+
+button {
+    margin-top: 20px;
+    padding: 12px;
+    font-size: 16px;
+}
+
+.checkbox-inline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    white-space: nowrap;
+    font-size: 14px;
+    margin-top: 5px;
+}
