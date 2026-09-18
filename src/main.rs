@@ -50,31 +50,10 @@ fn main() {
 
     let nvs_manager =
         NvsManager::<ConfigKey>::new(nvs_default_partition.clone(), String::from("PLANT_TWR_CFG"));
-
     let mut wifi_manager =
         WifiManager::new(peripherals.modem, sys_loop, nvs_default_partition.clone());
 
-    let reset_button_pressed = ResetReason::get() == ResetReason::ExternalPin;
-    if reset_button_pressed || !nvs_manager.all_properties_set() {
-        log::info!("Starting captive portal...");
-        wifi_manager.to_access_point_mode("Plant Tower Rust");
-        let ip_address = wifi_manager.ip_address();
-        log::info!("Access point IP address: {}", ip_address);
-        let keys = ConfigKey::all_variants()
-            .iter()
-            .map(|k| k.key().to_string())
-            .collect();
-        let captive_portal = CaptivePortal::new(ip_address, keys);
-        match captive_portal.run(5) {
-            Ok(config) => {
-                nvs_manager.store_properties(config);
-                log::info!("Configuration saved to NVS.");
-            }
-            Err(CaptivePortalTimeout) => {
-                log::warn!("Captive portal timed out. Falling back to stored configuration.");
-            }
-        }
-    }
+    run_captive_portal_if_needed(&nvs_manager, &mut wifi_manager);
 
     let pump = Rc::new(RefCell::new(hardware::Pump::new(peripherals.pins.gpio26)));
     let pump_switch = Rc::new(RefCell::new(mqtt::Switch::new(
@@ -86,33 +65,7 @@ fn main() {
         .borrow_mut()
         .register(pump as Rc<RefCell<dyn Switchable>>);
 
-    let (device, credentials) = if let Ok(config) = nvs_manager.load_all_properties() {
-        if let Err(e) = wifi_manager.to_client_mode(
-            config.get(ConfigKey::WifiSsid),
-            config.get(ConfigKey::WifiPassword),
-        ) {
-            log::warn!("Initial WiFi connection failed: {}", e);
-        }
-
-        let mut tower = mqtt::Device::new(
-            config.get(ConfigKey::MqttDevId).to_string(),
-            config.get(ConfigKey::MqttDevName).to_string(),
-            String::from("Myself"),
-        );
-        tower.register(Rc::clone(&pump_switch) as Rc<RefCell<dyn Component>>);
-
-        let credentials = MqttCredentials {
-            user: config.get(ConfigKey::MqttUser).to_string(),
-            password: config.get(ConfigKey::MqttPassword).to_string(),
-            host: config.get(ConfigKey::MqttHost).to_string(),
-            port: config.get(ConfigKey::MqttPort).to_string(),
-        };
-
-        (Some(tower), Some(credentials))
-    } else {
-        (None, None)
-    };
-
+    let (device, credentials) = setup_network(&nvs_manager, &mut wifi_manager, &pump_switch);
     let mut connection_manager = ConnectionManager::new(wifi_manager, device, credentials);
 
     pump_switch
@@ -134,4 +87,61 @@ fn main() {
 
         FreeRtos::delay_ms(10);
     }
+}
+
+fn run_captive_portal_if_needed(
+    nvs_manager: &NvsManager<ConfigKey>,
+    wifi_manager: &mut WifiManager,
+) {
+    let reset_button_pressed = ResetReason::get() == ResetReason::ExternalPin;
+    if !reset_button_pressed && nvs_manager.all_properties_set() {
+        return;
+    }
+    log::info!("Starting captive portal...");
+    wifi_manager.to_access_point_mode("Plant Tower Rust");
+    let ip_address = wifi_manager.ip_address();
+    log::info!("Access point IP address: {}", ip_address);
+    let keys = ConfigKey::all_variants()
+        .iter()
+        .map(|k| k.key().to_string())
+        .collect();
+    let captive_portal = CaptivePortal::new(ip_address, keys);
+    match captive_portal.run(5) {
+        Ok(config) => {
+            nvs_manager.store_properties(config);
+            log::info!("Configuration saved to NVS.");
+        }
+        Err(CaptivePortalTimeout) => {
+            log::warn!("Captive portal timed out. Falling back to stored configuration.");
+        }
+    }
+}
+
+fn setup_network(
+    nvs_manager: &NvsManager<ConfigKey>,
+    wifi_manager: &mut WifiManager,
+    pump_switch: &Rc<RefCell<mqtt::Switch>>,
+) -> (Option<mqtt::Device>, Option<MqttCredentials>) {
+    let Ok(config) = nvs_manager.load_all_properties() else {
+        return (None, None);
+    };
+    if let Err(e) = wifi_manager.to_client_mode(
+        config.get(ConfigKey::WifiSsid),
+        config.get(ConfigKey::WifiPassword),
+    ) {
+        log::warn!("Initial WiFi connection failed: {}", e);
+    }
+    let mut tower = mqtt::Device::new(
+        config.get(ConfigKey::MqttDevId).to_string(),
+        config.get(ConfigKey::MqttDevName).to_string(),
+        String::from("Myself"),
+    );
+    tower.register(Rc::clone(pump_switch) as Rc<RefCell<dyn Component>>);
+    let credentials = MqttCredentials {
+        user: config.get(ConfigKey::MqttUser).to_string(),
+        password: config.get(ConfigKey::MqttPassword).to_string(),
+        host: config.get(ConfigKey::MqttHost).to_string(),
+        port: config.get(ConfigKey::MqttPort).to_string(),
+    };
+    (Some(tower), Some(credentials))
 }
