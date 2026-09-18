@@ -8,7 +8,7 @@ use plant_tower_rs::captive_portal::CaptivePortal;
 use plant_tower_rs::connectivity::{ConnectionManager, MqttCredentials, WifiManager};
 use plant_tower_rs::hardware::{self, NvsKey, NvsManager};
 use plant_tower_rs::interface::Switchable;
-use plant_tower_rs::mqtt::{self, Component};
+use plant_tower_rs::mqtt::{self, ActuatorComponent, SensorComponent};
 use plant_tower_rs::nvs_keys;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -18,12 +18,16 @@ use std::time::{Duration, Instant};
 
 enum Components {
     PumpSwitch,
+    TemperatureSensor,
+    WaterLevelSensor,
 }
 
 impl fmt::Display for Components {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Components::PumpSwitch => write!(f, "plant_tower_rs_pump_switch"),
+            Components::TemperatureSensor => write!(f, "plant_tower_rs_temperature_sensor"),
+            Components::WaterLevelSensor => write!(f, "plant_tower_rs_water_level_sensor"),
         }
     }
 }
@@ -65,6 +69,28 @@ fn main() {
 
     let mut reset_connectivity_button =
         hardware::DigitalInput::new(peripherals.pins.gpio32, true, true, 20);
+
+    let mock_sensor = hardware::MockSensor::<f32>::new(18.0, 22.0);
+    let temperature_sensor = Rc::new(RefCell::new(mqtt::Sensor::new(
+        Components::TemperatureSensor.to_string(),
+        String::from("Temperature"),
+        HashMap::new(),
+        mqtt::SensorKind::Measurement {
+            device_class: mqtt::DeviceClass::Temperature,
+            unit: String::from("°C"),
+            value_template: String::from("{{ value_json.temperature }}"),
+        },
+    )));
+
+    let water_level_sensor = Rc::new(RefCell::new(mqtt::Sensor::<bool>::new(
+        Components::WaterLevelSensor.to_string(),
+        String::from("Water level low"),
+        HashMap::from([(String::from("icon"), String::from("mdi:water-alert"))]),
+        mqtt::SensorKind::Binary {
+            value_template: String::from("{{ value_json.state }}"),
+        },
+    )));
+
     let pump = Rc::new(RefCell::new(hardware::Pump::new(peripherals.pins.gpio26)));
     let pump_switch = Rc::new(RefCell::new(mqtt::Switch::new(
         Components::PumpSwitch.to_string(),
@@ -75,21 +101,42 @@ fn main() {
         .borrow_mut()
         .register(pump as Rc<RefCell<dyn Switchable>>);
 
-    let (device, credentials) = setup_network(&nvs_config_manager, &mut wifi_manager, &pump_switch);
+    let (device, credentials) = setup_network(
+        &nvs_config_manager,
+        &mut wifi_manager,
+        &pump_switch,
+        &temperature_sensor,
+        &water_level_sensor,
+    );
     let mut connection_manager = ConnectionManager::new(wifi_manager, device, credentials);
 
     pump_switch
         .borrow_mut()
         .switch_on(connection_manager.mqtt_client())
         .unwrap_or_else(|err| log::warn!("Failed to switch on pump: {}", err));
+
+    let mut water_level = false;
     let mut last_switched = Instant::now();
+    let mut last_sensor_update = Instant::now();
 
     loop {
+        connection_manager.tick();
+
         if reset_connectivity_button.true_at_least_for(5) {
             nvs_state_manager.store_property(StateKey::ForcePortal, "1");
             unsafe { sys::esp_restart() }
         }
-        connection_manager.tick();
+
+        if last_sensor_update.elapsed() >= Duration::from_secs(10) {
+            temperature_sensor
+                .borrow_mut()
+                .set_value(mock_sensor.get_value(), connection_manager.mqtt_client());
+            water_level = !water_level;
+            water_level_sensor
+                .borrow_mut()
+                .set_value(water_level, connection_manager.mqtt_client());
+            last_sensor_update = Instant::now();
+        }
 
         if last_switched.elapsed() >= Duration::from_secs(10) {
             pump_switch
@@ -140,6 +187,8 @@ fn setup_network(
     nvs_config_manager: &NvsManager<ConfigKey>,
     wifi_manager: &mut WifiManager,
     pump_switch: &Rc<RefCell<mqtt::Switch>>,
+    temperature_sensor: &Rc<RefCell<mqtt::Sensor<f32>>>,
+    water_level_sensor: &Rc<RefCell<mqtt::Sensor<bool>>>,
 ) -> (Option<mqtt::Device>, Option<MqttCredentials>) {
     let Ok(config) = nvs_config_manager.load_all_properties() else {
         return (None, None);
@@ -155,7 +204,9 @@ fn setup_network(
         config.get(ConfigKey::MqttDevName).to_string(),
         String::from("Myself"),
     );
-    tower.register(Rc::clone(pump_switch) as Rc<RefCell<dyn Component>>);
+    tower.register_actuator(Rc::clone(pump_switch) as Rc<RefCell<dyn ActuatorComponent>>);
+    tower.register_sensor(Rc::clone(temperature_sensor) as Rc<RefCell<dyn SensorComponent>>);
+    tower.register_sensor(Rc::clone(water_level_sensor) as Rc<RefCell<dyn SensorComponent>>);
     let credentials = MqttCredentials {
         user: config.get(ConfigKey::MqttUser).to_string(),
         password: config.get(ConfigKey::MqttPassword).to_string(),

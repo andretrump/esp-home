@@ -16,6 +16,7 @@ pub mod captive_portal {
 pub mod hardware {
     mod digital_output;
     pub use digital_output::DigitalOutput;
+
     mod digital_input;
     pub use digital_input::DigitalInput;
 
@@ -27,6 +28,9 @@ pub mod hardware {
 
     mod pump;
     pub use pump::Pump;
+
+    mod mock_sensor;
+    pub use mock_sensor::MockSensor;
 }
 
 pub mod interface {
@@ -39,8 +43,14 @@ pub mod mqtt {
     pub use setup::setup;
 
     mod device;
-    pub use device::Component;
+    pub use device::ActuatorComponent;
     pub use device::Device;
+    pub use device::SensorComponent;
+
+    mod sensor;
+    pub use sensor::DeviceClass;
+    pub use sensor::Sensor;
+    pub use sensor::SensorKind;
 
     mod switch;
     pub use switch::Switch;

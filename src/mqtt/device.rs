@@ -10,7 +10,8 @@ pub struct Device {
     mqtt_config: MqttConfig,
     discovery_topic: String,
     manufacturer: String,
-    components: HashMap<String, Rc<RefCell<dyn Component>>>,
+    actuator_components: HashMap<String, Rc<RefCell<dyn ActuatorComponent>>>,
+    sensor_components: HashMap<String, Rc<RefCell<dyn SensorComponent>>>,
 }
 
 impl Device {
@@ -22,13 +23,19 @@ impl Device {
             mqtt_config,
             discovery_topic,
             manufacturer,
-            components: HashMap::new(),
+            actuator_components: HashMap::new(),
+            sensor_components: HashMap::new(),
         }
     }
 
-    pub fn register(&mut self, component: Rc<RefCell<dyn Component>>) {
+    pub fn register_actuator(&mut self, component: Rc<RefCell<dyn ActuatorComponent>>) {
         let unique_id = component.borrow().unique_id().clone();
-        self.components.insert(unique_id, component);
+        self.actuator_components.insert(unique_id, component);
+    }
+
+    pub fn register_sensor(&mut self, component: Rc<RefCell<dyn SensorComponent>>) {
+        let unique_id = component.borrow().unique_id().clone();
+        self.sensor_components.insert(unique_id, component);
     }
 
     pub fn send_discovery_message(&mut self, mqtt_client: &mut EspMqttClient) {
@@ -64,7 +71,11 @@ impl Device {
             },
             cmps: {}
         };
-        self.components.values().for_each(|component| {
+        self.actuator_components.values().for_each(|component| {
+            let component_payload = component.borrow().to_discovery_payload();
+            payload["cmps"][component.borrow().unique_id()] = component_payload;
+        });
+        self.sensor_components.values().for_each(|component| {
             let component_payload = component.borrow().to_discovery_payload();
             payload["cmps"][component.borrow().unique_id()] = component_payload;
         });
@@ -72,7 +83,7 @@ impl Device {
     }
 
     pub fn subscribe_command_topics(&self, mqtt_client: &mut EspMqttClient) {
-        for component in self.components.values() {
+        for component in self.actuator_components.values() {
             if let Some(topic) = component.borrow().command_topic().cloned() {
                 mqtt_client
                     .subscribe(&topic, QoS::ExactlyOnce)
@@ -89,7 +100,7 @@ impl Device {
                 return;
             }
         };
-        match self.components.get_mut(&unique_id) {
+        match self.actuator_components.get_mut(&unique_id) {
             Some(component) => match component.borrow_mut().process_message(mqtt_client, payload) {
                 Ok(_) => (),
                 Err(err) => log::warn!(
@@ -144,10 +155,16 @@ impl MqttConfig {
     }
 }
 
-pub trait Component {
+pub trait ActuatorComponent {
     fn unique_id(&self) -> &String;
     fn state_topic(&self) -> &String;
     fn command_topic(&self) -> Option<&String>;
     fn to_discovery_payload(&self) -> JsonValue;
     fn process_message(&mut self, mqtt_client: &mut EspMqttClient, payload: &str) -> Result<()>;
+}
+
+pub trait SensorComponent {
+    fn unique_id(&self) -> &String;
+    fn state_topic(&self) -> &String;
+    fn to_discovery_payload(&self) -> JsonValue;
 }

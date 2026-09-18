@@ -1,5 +1,5 @@
 use crate::interface::Switchable;
-use crate::mqtt::{device::MqttConfig, Component};
+use crate::mqtt::{device::MqttConfig, ActuatorComponent};
 use anyhow::Result;
 use esp_idf_hal::sys::EspError;
 use esp_idf_svc::mqtt::client::EspMqttClient;
@@ -111,7 +111,7 @@ impl Switch {
     }
 }
 
-impl Component for Switch {
+impl ActuatorComponent for Switch {
     fn unique_id(&self) -> &String {
         self.mqtt_config.unique_id()
     }
