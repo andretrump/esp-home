@@ -16,6 +16,8 @@ pub mod captive_portal {
 pub mod hardware {
     mod digital_output;
     pub use digital_output::DigitalOutput;
+    mod digital_input;
+    pub use digital_input::DigitalInput;
 
     mod nvs_manager;
     pub use nvs_manager::LoadedConfig;

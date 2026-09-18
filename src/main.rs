@@ -1,8 +1,8 @@
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::peripherals::Peripherals;
-use esp_idf_hal::reset::ResetReason;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
+use esp_idf_svc::sys;
 use plant_tower_rs::captive_portal::http_server::CaptivePortalTimeout;
 use plant_tower_rs::captive_portal::CaptivePortal;
 use plant_tower_rs::connectivity::{ConnectionManager, MqttCredentials, WifiManager};
@@ -37,7 +37,13 @@ nvs_keys! {
         MqttUser => "mqtt_user",
         MqttPassword => "mqtt_password",
         MqttDevName => "mqtt_dev_name",
-        MqttDevId => "mqtt_dev_id",
+        MqttDevId => "mqtt_dev_id"
+    }
+}
+
+nvs_keys! {
+    enum StateKey {
+        ForcePortal => "force_portal"
     }
 }
 
@@ -48,13 +54,17 @@ fn main() {
     let sys_loop = EspSystemEventLoop::take().expect("Failed to initialize system loop");
     let nvs_default_partition = EspDefaultNvsPartition::take().expect("Failed to initialize NVS");
 
-    let nvs_manager =
+    let nvs_config_manager =
         NvsManager::<ConfigKey>::new(nvs_default_partition.clone(), String::from("PLANT_TWR_CFG"));
+    let nvs_state_manager =
+        NvsManager::<StateKey>::new(nvs_default_partition.clone(), String::from("PLANT_TWR_ST"));
     let mut wifi_manager =
         WifiManager::new(peripherals.modem, sys_loop, nvs_default_partition.clone());
 
-    run_captive_portal_if_needed(&nvs_manager, &mut wifi_manager);
+    run_captive_portal_if_needed(&nvs_config_manager, &nvs_state_manager, &mut wifi_manager);
 
+    let mut reset_connectivity_button =
+        hardware::DigitalInput::new(peripherals.pins.gpio32, true, true, 20);
     let pump = Rc::new(RefCell::new(hardware::Pump::new(peripherals.pins.gpio26)));
     let pump_switch = Rc::new(RefCell::new(mqtt::Switch::new(
         Components::PumpSwitch.to_string(),
@@ -65,7 +75,7 @@ fn main() {
         .borrow_mut()
         .register(pump as Rc<RefCell<dyn Switchable>>);
 
-    let (device, credentials) = setup_network(&nvs_manager, &mut wifi_manager, &pump_switch);
+    let (device, credentials) = setup_network(&nvs_config_manager, &mut wifi_manager, &pump_switch);
     let mut connection_manager = ConnectionManager::new(wifi_manager, device, credentials);
 
     pump_switch
@@ -75,6 +85,10 @@ fn main() {
     let mut last_switched = Instant::now();
 
     loop {
+        if reset_connectivity_button.true_at_least_for(5) {
+            nvs_state_manager.store_property(StateKey::ForcePortal, "1");
+            unsafe { sys::esp_restart() }
+        }
         connection_manager.tick();
 
         if last_switched.elapsed() >= Duration::from_secs(10) {
@@ -90,11 +104,15 @@ fn main() {
 }
 
 fn run_captive_portal_if_needed(
-    nvs_manager: &NvsManager<ConfigKey>,
+    nvs_config_manager: &NvsManager<ConfigKey>,
+    nvs_state_manager: &NvsManager<StateKey>,
     wifi_manager: &mut WifiManager,
 ) {
-    let reset_button_pressed = ResetReason::get() == ResetReason::ExternalPin;
-    if !reset_button_pressed && nvs_manager.all_properties_set() {
+    let force_portal = nvs_state_manager
+        .load_property(StateKey::ForcePortal)
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    if nvs_config_manager.all_properties_set() && !force_portal {
         return;
     }
     log::info!("Starting captive portal...");
@@ -108,21 +126,22 @@ fn run_captive_portal_if_needed(
     let captive_portal = CaptivePortal::new(ip_address, keys);
     match captive_portal.run(5) {
         Ok(config) => {
-            nvs_manager.store_properties(config);
+            nvs_config_manager.store_properties(config);
             log::info!("Configuration saved to NVS.");
         }
         Err(CaptivePortalTimeout) => {
             log::warn!("Captive portal timed out. Falling back to stored configuration.");
         }
     }
+    nvs_state_manager.store_property(StateKey::ForcePortal, "0");
 }
 
 fn setup_network(
-    nvs_manager: &NvsManager<ConfigKey>,
+    nvs_config_manager: &NvsManager<ConfigKey>,
     wifi_manager: &mut WifiManager,
     pump_switch: &Rc<RefCell<mqtt::Switch>>,
 ) -> (Option<mqtt::Device>, Option<MqttCredentials>) {
-    let Ok(config) = nvs_manager.load_all_properties() else {
+    let Ok(config) = nvs_config_manager.load_all_properties() else {
         return (None, None);
     };
     if let Err(e) = wifi_manager.to_client_mode(
