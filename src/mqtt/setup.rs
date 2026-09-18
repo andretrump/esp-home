@@ -1,4 +1,3 @@
-use esp_idf_hal::sys::EspError;
 use esp_idf_svc::mqtt::client::Details::Complete;
 use esp_idf_svc::mqtt::client::EspMqttEvent;
 use esp_idf_svc::mqtt::client::EventPayload::Received;
@@ -10,7 +9,7 @@ pub fn setup(
     mqtt_password: &str,
     mqtt_host: &str,
     mqtt_port: &str,
-) -> Result<(EspMqttClient<'static>, Receiver<(String, String)>), EspError> {
+) -> (EspMqttClient<'static>, Receiver<(String, String)>) {
     let broker_url = format!(
         "mqtt://{}:{}@{}:{}",
         mqtt_user, mqtt_password, mqtt_host, mqtt_port
@@ -20,8 +19,9 @@ pub fn setup(
         &broker_url,
         &MqttClientConfiguration::default(),
         move |event| send_to_main_thread(&sender, event),
-    )?;
-    Ok((mqtt_client, receiver))
+    )
+    .expect("Failed to create MQTT client");
+    (mqtt_client, receiver)
 }
 
 fn send_to_main_thread(sender: &Sender<(String, String)>, event: EspMqttEvent) {

@@ -1,3 +1,11 @@
+pub mod connectivity {
+    mod wifi;
+    pub use wifi::WifiManager;
+
+    mod connection_manager;
+    pub use connection_manager::{ConnectionManager, MqttCredentials};
+}
+
 pub mod captive_portal {
     pub mod portal;
     pub use portal::CaptivePortal;
@@ -10,7 +18,10 @@ pub mod hardware {
     pub use digital_output::DigitalOutput;
 
     mod nvs_manager;
+    pub use nvs_manager::LoadedConfig;
+    pub use nvs_manager::NvsKey;
     pub use nvs_manager::NvsManager;
+    pub use nvs_manager::PropertyNotSet;
 
     mod pump;
     pub use pump::Pump;
@@ -32,5 +43,3 @@ pub mod mqtt {
     mod switch;
     pub use switch::Switch;
 }
-
-pub mod wifi;

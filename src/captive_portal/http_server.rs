@@ -9,6 +9,11 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
+use std::time::Duration;
+
+#[derive(Debug, thiserror::Error)]
+#[error("Captive portal timed out waiting for configuration")]
+pub struct CaptivePortalTimeout;
 
 pub struct HttpServer {
     ip: Ipv4Addr,
@@ -17,22 +22,24 @@ pub struct HttpServer {
 }
 
 impl HttpServer {
-    pub fn new(ip: Ipv4Addr, properties: Vec<String>) -> Result<Self> {
-        let server = EspHttpServer::new(&HttpConfig::default())?;
-        Ok(Self {
+    pub fn new(ip: Ipv4Addr, properties: Vec<String>) -> Self {
+        let server =
+            EspHttpServer::new(&HttpConfig::default()).expect("Failed to start ESP HTTP server.");
+        Self {
             ip,
             properties,
             server,
-        })
+        }
     }
 
-    fn add_portal_page_handler(&mut self, sender: Sender<HashMap<String, String>>) -> Result<()> {
+    fn add_portal_page_handler(&mut self, sender: Sender<HashMap<String, String>>) {
         self.server
             .fn_handler("/", Method::Get, |req| -> Result<()> {
                 let mut res = req.into_ok_response()?;
                 res.write(index_html().as_bytes())?;
                 Ok(())
-            })?;
+            })
+            .expect("Failed to register portal page handler.");
 
         let required_keys = self.properties.clone();
         self.server
@@ -55,89 +62,101 @@ impl HttpServer {
                 res.write_all("Ok".as_bytes())?;
                 sender.send(config).ok();
                 Ok(())
-            })?;
-
-        Ok(())
+            })
+            .expect("Failed to register portal page handler.");
     }
 
-    fn add_portal_detection_handlers(&mut self) -> Result<()> {
+    fn add_portal_detection_handlers(&mut self) {
         let portal_url = format!("http://{}", self.ip);
 
         // Windows 11
         self.server
             .fn_handler("/connecttest.txt", Method::Get, |req| -> Result<()> {
                 redirect(req, "http://logout.net")
-            })?;
+            })
+            .expect("Failed to register portal detection handler.");
 
         // Windows 10, 404 prevents it from spamming the device
         self.server
             .fn_handler("/wpad.dat", Method::Get, |req| -> Result<()> {
                 not_found(req)
-            })?;
+            })
+            .expect("Failed to register portal detection handler.");
 
         // Android
         let url = portal_url.clone();
         self.server
             .fn_handler("/gen_204", Method::Get, move |req| -> Result<()> {
                 redirect(req, &url)
-            })?;
+            })
+            .expect("Failed to register portal detection handler.");
         let url = portal_url.clone();
         self.server
             .fn_handler("/generate_204", Method::Get, move |req| -> Result<()> {
                 redirect(req, &url)
-            })?;
+            })
+            .expect("Failed to register portal detection handler.");
 
         // Microsoft
         let url = portal_url.clone();
         self.server
             .fn_handler("/redirect", Method::Get, move |req| -> Result<()> {
                 redirect(req, &url)
-            })?;
+            })
+            .expect("Failed to register portal detection handler.");
 
         // Apple
         let url = portal_url.clone();
-        self.server.fn_handler(
-            "/hotspot-detect.html",
-            Method::Get,
-            move |req| -> Result<()> { redirect(req, &url) },
-        )?;
+        self.server
+            .fn_handler(
+                "/hotspot-detect.html",
+                Method::Get,
+                move |req| -> Result<()> { redirect(req, &url) },
+            )
+            .expect("Failed to register portal detection handler.");
 
         // Firefox (redirect)
         let url = portal_url.clone();
         self.server
             .fn_handler("/canonical.html", Method::Get, move |req| -> Result<()> {
                 redirect(req, &url)
-            })?;
+            })
+            .expect("Failed to register portal detection handler.");
 
         // Firefox (200), must be non-empty and must NOT contain "success"
         self.server
             .fn_handler("/success.txt", Method::Get, |req| -> Result<()> {
                 req.into_ok_response()?.write_all(b"ok")?;
                 Ok(())
-            })?;
+            })
+            .expect("Failed to register portal detection handler.");
 
         // Windows NCSI
         let url = portal_url.clone();
         self.server
             .fn_handler("/ncsi.txt", Method::Get, move |req| -> Result<()> {
                 redirect(req, &url)
-            })?;
+            })
+            .expect("Failed to register portal detection handler.");
 
         // Favicon, 404 to suppress unnecessary traffic
         self.server
             .fn_handler("/favicon.ico", Method::Get, |req| -> Result<()> {
                 not_found(req)
-            })?;
-
-        Ok(())
+            })
+            .expect("Failed to register portal detection handler.");
     }
 
-    pub fn run_until_config_received(&mut self) -> Result<HashMap<String, String>> {
+    pub fn run_until_config_received(
+        &mut self,
+        timeout_minutes: u64,
+    ) -> Result<HashMap<String, String>, CaptivePortalTimeout> {
         let (sender, receiver) = channel::<HashMap<String, String>>();
-        self.add_portal_page_handler(sender)?;
-        self.add_portal_detection_handlers()?;
-        let config = receiver.recv()?;
-        Ok(config)
+        self.add_portal_page_handler(sender);
+        self.add_portal_detection_handlers();
+        receiver
+            .recv_timeout(Duration::from_secs(timeout_minutes * 60))
+            .map_err(|_| CaptivePortalTimeout)
     }
 }
 

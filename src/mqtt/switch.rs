@@ -43,27 +43,42 @@ impl Switch {
         self.is_on
     }
 
-    pub fn switch_on(&mut self, mqtt_client: &mut EspMqttClient) -> Result<(), EspError> {
-        self.send_state(mqtt_client, SwitchState::On)?;
+    pub fn switch_on(
+        &mut self,
+        maybe_mqtt_client: Option<&mut EspMqttClient>,
+    ) -> Result<(), EspError> {
+        if let Some(mqtt_client) = maybe_mqtt_client {
+            self.send_state(mqtt_client, SwitchState::On)?;
+        }
         self.is_on = true;
         self.update_listeners();
         Ok(())
     }
 
-    pub fn switch_off(&mut self, mqtt_client: &mut EspMqttClient) -> Result<(), EspError> {
-        self.send_state(mqtt_client, SwitchState::Off)?;
+    pub fn switch_off(
+        &mut self,
+        maybe_mqtt_client: Option<&mut EspMqttClient>,
+    ) -> Result<(), EspError> {
+        if let Some(mqtt_client) = maybe_mqtt_client {
+            self.send_state(mqtt_client, SwitchState::Off)?;
+        }
         self.is_on = false;
         self.update_listeners();
         Ok(())
     }
 
-    pub fn toggle(&mut self, mqtt_client: &mut EspMqttClient) -> Result<(), EspError> {
+    pub fn toggle(
+        &mut self,
+        maybe_mqtt_client: Option<&mut EspMqttClient>,
+    ) -> Result<(), EspError> {
         let new_state = if self.is_on {
             SwitchState::Off
         } else {
             SwitchState::On
         };
-        self.send_state(mqtt_client, new_state)?;
+        if let Some(mqtt_client) = maybe_mqtt_client {
+            self.send_state(mqtt_client, new_state)?;
+        }
         self.is_on = !self.is_on;
         self.update_listeners();
         Ok(())
@@ -111,9 +126,9 @@ impl Component for Switch {
 
     fn process_message(&mut self, mqtt_client: &mut EspMqttClient, payload: &str) -> Result<()> {
         if payload.eq(&SwitchState::On.to_string()) {
-            self.switch_on(mqtt_client)?;
+            self.switch_on(Some(mqtt_client))?;
         } else if payload.eq(&SwitchState::Off.to_string()) {
-            self.switch_off(mqtt_client)?;
+            self.switch_off(Some(mqtt_client))?;
         } else {
             log::warn!("Ignoring unknown payload {}", payload);
         }
