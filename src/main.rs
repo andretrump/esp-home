@@ -10,12 +10,11 @@ use plant_tower_rs::hardware::{self, NvsKey, NvsManager};
 use plant_tower_rs::interface::Switchable;
 use plant_tower_rs::mqtt::{self, ActuatorComponent, SensorComponent};
 use plant_tower_rs::nvs_keys;
+use plant_tower_rs::utils::Timer;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
-
 enum Components {
     PumpSwitch,
     TemperatureSensor,
@@ -115,9 +114,8 @@ fn main() {
         .switch_on(connection_manager.mqtt_client())
         .unwrap_or_else(|err| log::warn!("Failed to switch on pump: {}", err));
 
+    let mut every_10_secs = Timer::new(10);
     let mut water_level = false;
-    let mut last_switched = Instant::now();
-    let mut last_sensor_update = Instant::now();
 
     loop {
         connection_manager.tick();
@@ -127,24 +125,21 @@ fn main() {
             unsafe { sys::esp_restart() }
         }
 
-        if last_sensor_update.elapsed() >= Duration::from_secs(10) {
+        every_10_secs.run(|| {
             temperature_sensor
                 .borrow_mut()
                 .set_value(mock_sensor.get_value(), connection_manager.mqtt_client());
+
             water_level = !water_level;
             water_level_sensor
                 .borrow_mut()
                 .set_value(water_level, connection_manager.mqtt_client());
-            last_sensor_update = Instant::now();
-        }
 
-        if last_switched.elapsed() >= Duration::from_secs(10) {
             pump_switch
                 .borrow_mut()
                 .toggle(connection_manager.mqtt_client())
                 .unwrap_or_else(|e| log::warn!("Toggle failed: {}", e));
-            last_switched = Instant::now();
-        }
+        });
 
         FreeRtos::delay_ms(10);
     }

@@ -11,7 +11,7 @@ name = "plant-tower-rs"
 harness = false
 
 [profile.release]
-opt-level = "s"
+opt-level = 2
 
 [profile.dev]
 debug = true

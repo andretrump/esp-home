@@ -1,5 +1,5 @@
-use crate::mqtt;
 use crate::connectivity::WifiManager;
+use crate::mqtt;
 use esp_idf_svc::mqtt::client::EspMqttClient;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
@@ -88,10 +88,17 @@ impl ConnectionManager {
 
     fn setup_mqtt(&mut self) {
         let (user, password, host, port) = match &self.credentials {
-            Some(c) => (c.user.clone(), c.password.clone(), c.host.clone(), c.port.clone()),
+            Some(c) => (
+                c.user.clone(),
+                c.password.clone(),
+                c.host.clone(),
+                c.port.clone(),
+            ),
             None => return,
         };
-        let Some(device) = self.device.as_mut() else { return; };
+        let Some(device) = self.device.as_mut() else {
+            return;
+        };
         let (mut client, receiver) = mqtt::setup(&user, &password, &host, &port);
         device.send_discovery_message(&mut client);
         device.subscribe_command_topics(&mut client);
