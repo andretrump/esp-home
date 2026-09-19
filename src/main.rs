@@ -20,6 +20,7 @@ enum Components {
     PumpSwitch,
     TemperatureSensor,
     WaterLevelSensor,
+    PumpCountdown,
 }
 
 impl fmt::Display for Components {
@@ -29,6 +30,7 @@ impl fmt::Display for Components {
             Components::PumpSwitch => write!(f, "plant_tower_rs_pump_switch"),
             Components::TemperatureSensor => write!(f, "plant_tower_rs_temperature_sensor"),
             Components::WaterLevelSensor => write!(f, "plant_tower_rs_water_level_sensor"),
+            Components::PumpCountdown => write!(f, "plant_tower_rs_pump_countdown"),
         }
     }
 }
@@ -53,7 +55,7 @@ nvs_keys! {
 }
 
 const PUMP_ON_SECS: u64 = 10;
-const PUMP_OFF_SECS: u64 = 20;
+const PUMP_OFF_SECS: u64 = 600;
 const SENSOR_REFRESH_SECS: u64 = 10;
 
 fn main() {
@@ -80,7 +82,7 @@ fn main() {
     let mut temperature_sensor = hardware::OneWireTemperatureSensor::new(peripherals.pins.gpio23);
     let mut water_level_sensor =
         hardware::DigitalInput::new(peripherals.pins.gpio22, true, true, 20);
-    let (mqtt_temperature_sensor, mqtt_water_level_sensor) = create_sensors();
+    let (mqtt_temperature_sensor, mqtt_water_level_sensor, mqtt_pump_countdown) = create_sensors();
     let (enable_pump_switch, pump_switch, pump) = create_pump(peripherals.pins.gpio13);
 
     let (device, credentials) = setup_network(
@@ -90,6 +92,7 @@ fn main() {
         &pump_switch,
         &mqtt_temperature_sensor,
         &mqtt_water_level_sensor,
+        &mqtt_pump_countdown,
     );
     let mut connection_manager = ConnectionManager::new(wifi_manager, device, credentials);
 
@@ -126,6 +129,7 @@ fn main() {
     }
 
     let mut temperature_error = false;
+    let mut countdown_timer = Timer::new(1);
     let mut sensor_refresh_timer = Timer::new(SENSOR_REFRESH_SECS);
     let mut pump_on_timer = Timer::new(PUMP_ON_SECS);
     let mut pump_off_timer = Timer::new(PUMP_OFF_SECS);
@@ -167,6 +171,32 @@ fn main() {
                 water_level_sensor.refresh_state().state(),
                 connection_manager.mqtt_client(),
             );
+
+            let pump_enabled = enable_pump_switch.borrow().is_on();
+            let countdown = if !pump_enabled {
+                0
+            } else if pump_switch.borrow().is_on() {
+                PUMP_ON_SECS.saturating_sub(pump_on_timer.elapsed_secs())
+            } else {
+                PUMP_OFF_SECS.saturating_sub(pump_off_timer.elapsed_secs())
+            };
+            mqtt_pump_countdown
+                .borrow_mut()
+                .set_value(countdown, connection_manager.mqtt_client());
+        });
+
+        countdown_timer.run(|| {
+            let pump_enabled = enable_pump_switch.borrow().is_on();
+            let countdown = if !pump_enabled {
+                0
+            } else if pump_switch.borrow().is_on() {
+                PUMP_ON_SECS.saturating_sub(pump_on_timer.elapsed_secs())
+            } else {
+                PUMP_OFF_SECS.saturating_sub(pump_off_timer.elapsed_secs())
+            };
+            mqtt_pump_countdown
+                .borrow_mut()
+                .set_value(countdown, connection_manager.mqtt_client());
         });
 
         let pump_enabled = enable_pump_switch.borrow().is_on();
@@ -264,6 +294,7 @@ fn run_captive_portal_if_needed(
 fn create_sensors() -> (
     Rc<RefCell<mqtt::Sensor<f32>>>,
     Rc<RefCell<mqtt::Sensor<bool>>>,
+    Rc<RefCell<mqtt::Sensor<u64>>>,
 ) {
     let temperature = Rc::new(RefCell::new(mqtt::Sensor::new(
         Components::TemperatureSensor.to_string(),
@@ -283,7 +314,17 @@ fn create_sensors() -> (
             value_template: String::from("{{ value_json.state }}"),
         },
     )));
-    (temperature, water_level)
+    let pump_countdown = Rc::new(RefCell::new(mqtt::Sensor::<u64>::new(
+        Components::PumpCountdown.to_string(),
+        String::from("Pump Countdown"),
+        HashMap::new(),
+        mqtt::SensorKind::Measurement {
+            device_class: mqtt::DeviceClass::Duration,
+            unit: String::from("s"),
+            value_template: String::from("{{ value_json.duration }}"),
+        },
+    )));
+    (temperature, water_level, pump_countdown)
 }
 
 fn create_pump(
@@ -314,6 +355,7 @@ fn setup_network(
     pump_switch: &Rc<RefCell<mqtt::Switch>>,
     temperature_sensor: &Rc<RefCell<mqtt::Sensor<f32>>>,
     water_level_sensor: &Rc<RefCell<mqtt::Sensor<bool>>>,
+    pump_countdown: &Rc<RefCell<mqtt::Sensor<u64>>>,
 ) -> (Option<mqtt::Device>, Option<MqttCredentials>) {
     let Ok(config) = nvs_config_manager.load_all_properties() else {
         return (None, None);
@@ -333,6 +375,7 @@ fn setup_network(
     tower.register_actuator(Rc::clone(pump_switch) as Rc<RefCell<dyn ActuatorComponent>>);
     tower.register_sensor(Rc::clone(temperature_sensor) as Rc<RefCell<dyn SensorComponent>>);
     tower.register_sensor(Rc::clone(water_level_sensor) as Rc<RefCell<dyn SensorComponent>>);
+    tower.register_sensor(Rc::clone(pump_countdown) as Rc<RefCell<dyn SensorComponent>>);
     let credentials = MqttCredentials {
         user: config.get(ConfigKey::MqttUser).to_string(),
         password: config.get(ConfigKey::MqttPassword).to_string(),

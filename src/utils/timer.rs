@@ -13,6 +13,10 @@ impl Timer {
         }
     }
 
+    pub fn elapsed_secs(&self) -> u64 {
+        self.last.elapsed().as_secs()
+    }
+
     pub fn reset(&mut self) {
         self.last = Instant::now();
     }
