@@ -17,14 +17,18 @@ impl Timer {
         self.last.elapsed().as_secs()
     }
 
+    pub fn has_elapsed(&self) -> bool {
+        self.last.elapsed() >= self.interval
+    }
+
     pub fn reset(&mut self) {
         self.last = Instant::now();
     }
 
     pub fn run(&mut self, f: impl FnOnce()) {
-        if self.last.elapsed() >= self.interval {
+        if self.has_elapsed() {
             f();
-            self.last = Instant::now();
+            self.reset();
         }
     }
 }
