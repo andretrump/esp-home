@@ -5,8 +5,8 @@ use esp_idf_svc::mqtt::client::EspMqttClient;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub const PUMP_ON_SECS: u64 = 10;
-pub const PUMP_OFF_SECS: u64 = 20;
+pub const PUMP_ON_SECS: u64 = 60;
+pub const PUMP_OFF_SECS: u64 = 40 * 60;
 
 pub struct PumpController {
     enable_switch: Rc<RefCell<mqtt::Switch>>,
@@ -15,6 +15,7 @@ pub struct PumpController {
     on_timer: Timer,
     off_timer: Timer,
     prev_enabled: bool,
+    current_off_secs: u64,
 }
 
 impl PumpController {
@@ -30,6 +31,7 @@ impl PumpController {
             on_timer: Timer::new(PUMP_ON_SECS),
             off_timer: Timer::new(PUMP_OFF_SECS),
             prev_enabled: true,
+            current_off_secs: PUMP_OFF_SECS,
         }
     }
 
@@ -56,11 +58,13 @@ impl PumpController {
         } else if pump_is_on {
             PUMP_ON_SECS.saturating_sub(self.on_timer.elapsed_secs())
         } else {
-            PUMP_OFF_SECS.saturating_sub(self.off_timer.elapsed_secs())
+            self.current_off_secs
+                .saturating_sub(self.off_timer.elapsed_secs())
         }
     }
 
-    pub fn tick(&mut self, mqtt_client: Option<&mut EspMqttClient>) {
+    pub fn tick(&mut self, mqtt_client: Option<&mut EspMqttClient>, temperature: Option<f32>) {
+        self.current_off_secs = off_duration_secs(temperature);
         self.advance_cycle(mqtt_client);
         self.drive_output();
     }
@@ -76,7 +80,7 @@ impl PumpController {
             let pump_is_on = self.pump_switch.borrow().is_on();
             if pump_is_on && self.on_timer.has_elapsed() {
                 self.stop_pump(mqtt_client);
-            } else if !pump_is_on && self.off_timer.has_elapsed() {
+            } else if !pump_is_on && self.off_timer.elapsed_secs() >= self.current_off_secs {
                 self.start_pump(mqtt_client);
             }
         }
@@ -109,4 +113,16 @@ impl PumpController {
             self.output.borrow_mut().switch_off();
         }
     }
+}
+
+fn off_duration_secs(temperature: Option<f32>) -> u64 {
+    let Some(temp) = temperature else {
+        return PUMP_OFF_SECS;
+    };
+    if temp <= 20.0 {
+        return PUMP_OFF_SECS;
+    }
+    let kelvin_over_20 = (temp as u8).saturating_sub(20) as f32;
+    let factor = (1.0 - 0.9 * (kelvin_over_20 / 15.0).powi(2) - kelvin_over_20 * 0.01).max(0.15);
+    (PUMP_OFF_SECS as f32 * factor) as u64
 }

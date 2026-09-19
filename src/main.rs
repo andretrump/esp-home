@@ -152,6 +152,7 @@ fn main() {
     }
 
     let mut temperature_error = false;
+    let mut last_temperature: Option<f32> = None;
     let mut countdown_timer = Timer::new(1);
     let mut sensor_refresh_timer = Timer::new(SENSOR_REFRESH_SECS);
 
@@ -172,12 +173,14 @@ fn main() {
             match temperature_sensor.get_temperature() {
                 Some(temperature) => {
                     temperature_error = false;
+                    last_temperature = Some(temperature);
                     mqtt_temperature_sensor
                         .borrow_mut()
                         .set_value(temperature, connection_manager.mqtt_client());
                 }
                 None => {
                     temperature_error = true;
+                    last_temperature = None;
                     mqtt_temperature_sensor
                         .borrow_mut()
                         .clear_value(connection_manager.mqtt_client());
@@ -196,7 +199,7 @@ fn main() {
             );
         });
 
-        pump_controller.tick(connection_manager.mqtt_client());
+        pump_controller.tick(connection_manager.mqtt_client(), last_temperature);
 
         let pump_on = pump_controller.is_on();
         let pump_enabled = pump_controller.is_enabled();
