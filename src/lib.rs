@@ -32,19 +32,11 @@ pub mod hardware {
     pub use nvs_manager::NvsManager;
     pub use nvs_manager::PropertyNotSet;
 
-    mod pump;
-    pub use pump::Pump;
-
     mod mock_sensor;
     pub use mock_sensor::MockSensor;
 
     mod onewire_temperature_sensor;
     pub use onewire_temperature_sensor::OneWireTemperatureSensor;
-}
-
-pub mod interface {
-    mod switchable;
-    pub use switchable::Switchable;
 }
 
 pub mod mqtt {

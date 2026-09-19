@@ -13,6 +13,10 @@ impl Timer {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.last = Instant::now();
+    }
+
     pub fn run(&mut self, f: impl FnOnce()) {
         if self.last.elapsed() >= self.interval {
             f();
