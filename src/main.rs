@@ -67,10 +67,10 @@ fn main() {
     run_captive_portal_if_needed(&nvs_config_manager, &nvs_state_manager, &mut wifi_manager);
 
     let mut reset_connectivity_button =
-        hardware::DigitalInput::new(peripherals.pins.gpio32, true, true, 20);
+        hardware::DigitalInput::new(peripherals.pins.gpio19, true, true, 20);
 
     let mock_sensor = hardware::MockSensor::<f32>::new(18.0, 22.0);
-    let temperature_sensor = Rc::new(RefCell::new(mqtt::Sensor::new(
+    let mqtt_temperature_sensor = Rc::new(RefCell::new(mqtt::Sensor::new(
         Components::TemperatureSensor.to_string(),
         String::from("Temperature"),
         HashMap::new(),
@@ -81,7 +81,9 @@ fn main() {
         },
     )));
 
-    let water_level_sensor = Rc::new(RefCell::new(mqtt::Sensor::<bool>::new(
+    let mut water_level_sensor =
+        hardware::DigitalInput::new(peripherals.pins.gpio22, true, true, 20);
+    let mqtt_water_level_sensor = Rc::new(RefCell::new(mqtt::Sensor::<bool>::new(
         Components::WaterLevelSensor.to_string(),
         String::from("Water level low"),
         HashMap::from([(String::from("icon"), String::from("mdi:water-alert"))]),
@@ -104,8 +106,8 @@ fn main() {
         &nvs_config_manager,
         &mut wifi_manager,
         &pump_switch,
-        &temperature_sensor,
-        &water_level_sensor,
+        &mqtt_temperature_sensor,
+        &mqtt_water_level_sensor,
     );
     let mut connection_manager = ConnectionManager::new(wifi_manager, device, credentials);
 
@@ -115,7 +117,6 @@ fn main() {
         .unwrap_or_else(|err| log::warn!("Failed to switch on pump: {}", err));
 
     let mut every_10_secs = Timer::new(10);
-    let mut water_level = false;
 
     loop {
         connection_manager.tick();
@@ -126,14 +127,14 @@ fn main() {
         }
 
         every_10_secs.run(|| {
-            temperature_sensor
+            mqtt_temperature_sensor
                 .borrow_mut()
                 .set_value(mock_sensor.get_value(), connection_manager.mqtt_client());
 
-            water_level = !water_level;
-            water_level_sensor
-                .borrow_mut()
-                .set_value(water_level, connection_manager.mqtt_client());
+            mqtt_water_level_sensor.borrow_mut().set_value(
+                water_level_sensor.refresh_state().state(),
+                connection_manager.mqtt_client(),
+            );
 
             pump_switch
                 .borrow_mut()

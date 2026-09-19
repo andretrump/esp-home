@@ -38,7 +38,7 @@ impl<'a> DigitalInput<'a> {
         }
     }
 
-    pub fn refresh_state(&mut self) {
+    pub fn refresh_state(&mut self) -> &mut Self {
         self.previous_state = self.state;
         let pin_state = self.get_state();
         if pin_state != self.state
@@ -47,6 +47,7 @@ impl<'a> DigitalInput<'a> {
             self.state = pin_state;
             self.time_state_changed = Instant::now();
         }
+        self
     }
 
     fn get_state(&self) -> bool {
