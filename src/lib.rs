@@ -14,6 +14,12 @@ pub mod captive_portal {
 }
 
 pub mod hardware {
+    mod led;
+    pub use led::Led;
+
+    mod led_group;
+    pub use led_group::{ConnectionState, LedGroup};
+
     mod digital_output;
     pub use digital_output::DigitalOutput;
 

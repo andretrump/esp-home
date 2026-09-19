@@ -1,4 +1,5 @@
 use esp_idf_hal::delay::FreeRtos;
+use esp_idf_hal::ledc::{config::TimerConfig, LedcTimerDriver};
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
@@ -70,37 +71,10 @@ fn main() {
         hardware::DigitalInput::new(peripherals.pins.gpio19, true, true, 20);
 
     let mut temperature_sensor = hardware::OneWireTemperatureSensor::new(peripherals.pins.gpio23);
-    let mqtt_temperature_sensor = Rc::new(RefCell::new(mqtt::Sensor::new(
-        Components::TemperatureSensor.to_string(),
-        String::from("Temperature"),
-        HashMap::new(),
-        mqtt::SensorKind::Measurement {
-            device_class: mqtt::DeviceClass::Temperature,
-            unit: String::from("°C"),
-            value_template: String::from("{{ value_json.temperature }}"),
-        },
-    )));
-
     let mut water_level_sensor =
         hardware::DigitalInput::new(peripherals.pins.gpio22, true, true, 20);
-    let mqtt_water_level_sensor = Rc::new(RefCell::new(mqtt::Sensor::<bool>::new(
-        Components::WaterLevelSensor.to_string(),
-        String::from("Water level low"),
-        HashMap::from([(String::from("icon"), String::from("mdi:water-alert"))]),
-        mqtt::SensorKind::Binary {
-            value_template: String::from("{{ value_json.state }}"),
-        },
-    )));
-
-    let pump = Rc::new(RefCell::new(hardware::Pump::new(peripherals.pins.gpio26)));
-    let pump_switch = Rc::new(RefCell::new(mqtt::Switch::new(
-        Components::PumpSwitch.to_string(),
-        String::from("Pump"),
-        HashMap::from([(String::from("icon"), String::from("mdi:pump"))]),
-    )));
-    pump_switch
-        .borrow_mut()
-        .register(pump as Rc<RefCell<dyn Switchable>>);
+    let (mqtt_temperature_sensor, mqtt_water_level_sensor) = create_sensors();
+    let pump_switch = create_pump(peripherals.pins.gpio13);
 
     let (device, credentials) = setup_network(
         &nvs_config_manager,
@@ -116,6 +90,31 @@ fn main() {
         .switch_on(connection_manager.mqtt_client())
         .unwrap_or_else(|err| log::warn!("Failed to switch on pump: {}", err));
 
+    let ledc_timer = LedcTimerDriver::new(peripherals.ledc.timer0, &TimerConfig::default())
+        .expect("Failed to initialize LEDC timer");
+    let mut led_group = hardware::LedGroup::new(
+        hardware::Led::new(
+            peripherals.ledc.channel0,
+            &ledc_timer,
+            peripherals.pins.gpio25,
+        ),
+        hardware::Led::new(
+            peripherals.ledc.channel1,
+            &ledc_timer,
+            peripherals.pins.gpio26,
+        ),
+        hardware::Led::new(
+            peripherals.ledc.channel2,
+            &ledc_timer,
+            peripherals.pins.gpio33,
+        ),
+    );
+    while !led_group.run_startup_animation() {
+        FreeRtos::delay_ms(10);
+    }
+
+    let mut pump_on = true;
+    let mut temperature_error = false;
     let mut every_10_secs = Timer::new(10);
 
     loop {
@@ -128,12 +127,18 @@ fn main() {
 
         every_10_secs.run(|| {
             match temperature_sensor.get_temperature() {
-                Some(temperature) => mqtt_temperature_sensor
-                    .borrow_mut()
-                    .set_value(temperature, connection_manager.mqtt_client()),
-                None => mqtt_temperature_sensor
-                    .borrow_mut()
-                    .clear_value(connection_manager.mqtt_client()),
+                Some(temperature) => {
+                    temperature_error = false;
+                    mqtt_temperature_sensor
+                        .borrow_mut()
+                        .set_value(temperature, connection_manager.mqtt_client());
+                }
+                None => {
+                    temperature_error = true;
+                    mqtt_temperature_sensor
+                        .borrow_mut()
+                        .clear_value(connection_manager.mqtt_client());
+                }
             };
 
             mqtt_water_level_sensor.borrow_mut().set_value(
@@ -141,11 +146,21 @@ fn main() {
                 connection_manager.mqtt_client(),
             );
 
+            pump_on = !pump_on;
             pump_switch
                 .borrow_mut()
                 .toggle(connection_manager.mqtt_client())
                 .unwrap_or_else(|e| log::warn!("Toggle failed: {}", e));
         });
+
+        let connection_state = if connection_manager.mqtt_client().is_some() {
+            hardware::ConnectionState::WifiMqttConnected
+        } else {
+            hardware::ConnectionState::Disconnected
+        };
+        led_group.display_pump_state(pump_on, true);
+        led_group.display_alert_state(true, water_level_sensor.state(), temperature_error);
+        led_group.display_connection_state(connection_state);
 
         FreeRtos::delay_ms(10);
     }
@@ -182,6 +197,44 @@ fn run_captive_portal_if_needed(
         }
     }
     nvs_state_manager.store_property(StateKey::ForcePortal, "0");
+}
+
+fn create_sensors() -> (
+    Rc<RefCell<mqtt::Sensor<f32>>>,
+    Rc<RefCell<mqtt::Sensor<bool>>>,
+) {
+    let temperature = Rc::new(RefCell::new(mqtt::Sensor::new(
+        Components::TemperatureSensor.to_string(),
+        String::from("Temperature"),
+        HashMap::new(),
+        mqtt::SensorKind::Measurement {
+            device_class: mqtt::DeviceClass::Temperature,
+            unit: String::from("°C"),
+            value_template: String::from("{{ value_json.temperature }}"),
+        },
+    )));
+    let water_level = Rc::new(RefCell::new(mqtt::Sensor::<bool>::new(
+        Components::WaterLevelSensor.to_string(),
+        String::from("Water level low"),
+        HashMap::from([(String::from("icon"), String::from("mdi:water-alert"))]),
+        mqtt::SensorKind::Binary {
+            value_template: String::from("{{ value_json.state }}"),
+        },
+    )));
+    (temperature, water_level)
+}
+
+fn create_pump(pin: impl esp_idf_hal::gpio::OutputPin + 'static) -> Rc<RefCell<mqtt::Switch>> {
+    let pump = Rc::new(RefCell::new(hardware::Pump::new(pin)));
+    let pump_switch = Rc::new(RefCell::new(mqtt::Switch::new(
+        Components::PumpSwitch.to_string(),
+        String::from("Pump"),
+        HashMap::from([(String::from("icon"), String::from("mdi:pump"))]),
+    )));
+    pump_switch
+        .borrow_mut()
+        .register(pump as Rc<RefCell<dyn Switchable>>);
+    pump_switch
 }
 
 fn setup_network(
