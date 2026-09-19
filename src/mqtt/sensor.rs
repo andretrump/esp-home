@@ -66,6 +66,17 @@ impl<T: Into<json::JsonValue> + PartialEq + Clone> Sensor<T> {
         }
     }
 
+    pub fn clear_value(&mut self, maybe_mqtt_client: Option<&mut EspMqttClient>) {
+        self.value = None;
+        if let Some(mqtt_client) = maybe_mqtt_client {
+            if let Err(e) =
+                mqtt_client.publish(self.mqtt_config.state_topic(), QoS::AtLeastOnce, true, b"")
+            {
+                log::warn!("Failed to clear sensor state: {}", e);
+            }
+        }
+    }
+
     fn to_state_payload(&self, value: T) -> String {
         let json_value: json::JsonValue = value.into();
         match &self.kind {
@@ -101,7 +112,11 @@ impl<T: Into<json::JsonValue> + PartialEq + Clone> SensorComponent for Sensor<T>
             state_topic: self.mqtt_config.state_topic().as_str(),
         };
         match &self.kind {
-            SensorKind::Measurement { device_class, unit, value_template } => {
+            SensorKind::Measurement {
+                device_class,
+                unit,
+                value_template,
+            } => {
                 message["device_class"] = device_class.to_string().as_str().into();
                 message["unit_of_measurement"] = unit.as_str().into();
                 message["value_template"] = value_template.as_str().into();

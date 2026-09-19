@@ -31,6 +31,9 @@ pub mod hardware {
 
     mod mock_sensor;
     pub use mock_sensor::MockSensor;
+
+    mod onewire_temperature_sensor;
+    pub use onewire_temperature_sensor::OneWireTemperatureSensor;
 }
 
 pub mod interface {

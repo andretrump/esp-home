@@ -69,7 +69,7 @@ fn main() {
     let mut reset_connectivity_button =
         hardware::DigitalInput::new(peripherals.pins.gpio19, true, true, 20);
 
-    let mock_sensor = hardware::MockSensor::<f32>::new(18.0, 22.0);
+    let mut temperature_sensor = hardware::OneWireTemperatureSensor::new(peripherals.pins.gpio23);
     let mqtt_temperature_sensor = Rc::new(RefCell::new(mqtt::Sensor::new(
         Components::TemperatureSensor.to_string(),
         String::from("Temperature"),
@@ -127,9 +127,14 @@ fn main() {
         }
 
         every_10_secs.run(|| {
-            mqtt_temperature_sensor
-                .borrow_mut()
-                .set_value(mock_sensor.get_value(), connection_manager.mqtt_client());
+            match temperature_sensor.get_temperature() {
+                Some(temperature) => mqtt_temperature_sensor
+                    .borrow_mut()
+                    .set_value(temperature, connection_manager.mqtt_client()),
+                None => mqtt_temperature_sensor
+                    .borrow_mut()
+                    .clear_value(connection_manager.mqtt_client()),
+            };
 
             mqtt_water_level_sensor.borrow_mut().set_value(
                 water_level_sensor.refresh_state().state(),
