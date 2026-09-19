@@ -1,12 +1,12 @@
+use crate::hardware;
+use crate::mqtt;
+use crate::utils::Timer;
 use esp_idf_svc::mqtt::client::EspMqttClient;
-use plant_tower_rs::hardware;
-use plant_tower_rs::mqtt;
-use plant_tower_rs::utils::Timer;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 pub const PUMP_ON_SECS: u64 = 10;
-pub const PUMP_OFF_SECS: u64 = 600;
+pub const PUMP_OFF_SECS: u64 = 20;
 
 pub struct PumpController {
     enable_switch: Rc<RefCell<mqtt::Switch>>,
@@ -61,37 +61,48 @@ impl PumpController {
     }
 
     pub fn tick(&mut self, mqtt_client: Option<&mut EspMqttClient>) {
+        self.advance_cycle(mqtt_client);
+        self.drive_output();
+    }
+
+    fn advance_cycle(&mut self, mqtt_client: Option<&mut EspMqttClient>) {
         let pump_enabled = self.enable_switch.borrow().is_on();
         let just_disabled = !pump_enabled && self.prev_enabled;
         self.prev_enabled = pump_enabled;
 
         if just_disabled {
-            self.pump_switch
-                .borrow_mut()
-                .switch_off(mqtt_client)
-                .unwrap_or_else(|e| log::warn!("Failed to stop pump: {}", e));
-            self.on_timer.reset();
-            self.off_timer.reset();
+            self.stop_pump(mqtt_client);
         } else if pump_enabled {
             let pump_is_on = self.pump_switch.borrow().is_on();
             if pump_is_on && self.on_timer.has_elapsed() {
-                self.pump_switch
-                    .borrow_mut()
-                    .switch_off(mqtt_client)
-                    .unwrap_or_else(|e| log::warn!("Failed to stop pump: {}", e));
-                self.on_timer.reset();
-                self.off_timer.reset();
+                self.stop_pump(mqtt_client);
             } else if !pump_is_on && self.off_timer.has_elapsed() {
-                self.pump_switch
-                    .borrow_mut()
-                    .switch_on(mqtt_client)
-                    .unwrap_or_else(|e| log::warn!("Failed to start pump: {}", e));
-                self.off_timer.reset();
-                self.on_timer.reset();
+                self.start_pump(mqtt_client);
             }
         }
+    }
 
+    fn stop_pump(&mut self, mqtt_client: Option<&mut EspMqttClient>) {
+        self.pump_switch
+            .borrow_mut()
+            .switch_off(mqtt_client)
+            .unwrap_or_else(|e| log::warn!("Failed to stop pump: {}", e));
+        self.on_timer.reset();
+        self.off_timer.reset();
+    }
+
+    fn start_pump(&mut self, mqtt_client: Option<&mut EspMqttClient>) {
+        self.pump_switch
+            .borrow_mut()
+            .switch_on(mqtt_client)
+            .unwrap_or_else(|e| log::warn!("Failed to start pump: {}", e));
+        self.off_timer.reset();
+        self.on_timer.reset();
+    }
+
+    fn drive_output(&mut self) {
         let pump_on = self.pump_switch.borrow().is_on();
+        let pump_enabled = self.enable_switch.borrow().is_on();
         if pump_on && pump_enabled {
             self.output.borrow_mut().switch_on();
         } else {

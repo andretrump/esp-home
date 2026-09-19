@@ -1,5 +1,3 @@
-mod pump_controller;
-
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::ledc::{config::TimerConfig, LedcTimerDriver};
 use esp_idf_hal::peripherals::Peripherals;
@@ -9,15 +7,16 @@ use esp_idf_svc::sys;
 use plant_tower_rs::captive_portal::http_server::CaptivePortalTimeout;
 use plant_tower_rs::captive_portal::CaptivePortal;
 use plant_tower_rs::connectivity::{ConnectionManager, MqttCredentials, WifiManager};
+use plant_tower_rs::controllers::PumpController;
 use plant_tower_rs::hardware::{self, NvsKey, NvsManager};
 use plant_tower_rs::mqtt::{self, ActuatorComponent, SensorComponent};
 use plant_tower_rs::nvs_keys;
 use plant_tower_rs::utils::Timer;
-use pump_controller::PumpController;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
+
 enum Components {
     EnablePumpSwitch,
     PumpSwitch,
@@ -132,9 +131,21 @@ fn main() {
     let ledc_timer = LedcTimerDriver::new(peripherals.ledc.timer0, &TimerConfig::default())
         .expect("Failed to initialize LEDC timer");
     let mut led_group = hardware::LedGroup::new(
-        hardware::Led::new(peripherals.ledc.channel0, &ledc_timer, peripherals.pins.gpio25),
-        hardware::Led::new(peripherals.ledc.channel1, &ledc_timer, peripherals.pins.gpio26),
-        hardware::Led::new(peripherals.ledc.channel2, &ledc_timer, peripherals.pins.gpio33),
+        hardware::Led::new(
+            peripherals.ledc.channel0,
+            &ledc_timer,
+            peripherals.pins.gpio25,
+        ),
+        hardware::Led::new(
+            peripherals.ledc.channel1,
+            &ledc_timer,
+            peripherals.pins.gpio26,
+        ),
+        hardware::Led::new(
+            peripherals.ledc.channel2,
+            &ledc_timer,
+            peripherals.pins.gpio33,
+        ),
     );
     while !led_group.run_startup_animation() {
         FreeRtos::delay_ms(10);

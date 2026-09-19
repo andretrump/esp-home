@@ -13,6 +13,11 @@ pub mod captive_portal {
     pub mod http_server;
 }
 
+pub mod controllers {
+    pub mod pump_controller;
+    pub use pump_controller::PumpController;
+}
+
 pub mod hardware {
     mod led;
     pub use led::Led;
@@ -27,10 +32,7 @@ pub mod hardware {
     pub use digital_input::DigitalInput;
 
     mod nvs_manager;
-    pub use nvs_manager::LoadedConfig;
-    pub use nvs_manager::NvsKey;
-    pub use nvs_manager::NvsManager;
-    pub use nvs_manager::PropertyNotSet;
+    pub use nvs_manager::{LoadedConfig, NvsKey, NvsManager, PropertyNotSet};
 
     mod mock_sensor;
     pub use mock_sensor::MockSensor;
@@ -44,14 +46,10 @@ pub mod mqtt {
     pub use setup::setup;
 
     mod device;
-    pub use device::ActuatorComponent;
-    pub use device::Device;
-    pub use device::SensorComponent;
+    pub use device::{ActuatorComponent, Device, SensorComponent};
 
     mod sensor;
-    pub use sensor::DeviceClass;
-    pub use sensor::Sensor;
-    pub use sensor::SensorKind;
+    pub use sensor::{DeviceClass, Sensor, SensorKind};
 
     mod switch;
     pub use switch::Switch;
