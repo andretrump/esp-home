@@ -9,13 +9,11 @@ use plant_tower_rs::captive_portal::CaptivePortal;
 use plant_tower_rs::connectivity::{ConnectionManager, MqttCredentials, WifiManager};
 use plant_tower_rs::controllers::PumpController;
 use plant_tower_rs::hardware::{self, NvsKey, NvsManager};
-use plant_tower_rs::mqtt::{self, ActuatorComponent};
+use plant_tower_rs::mqtt;
 use plant_tower_rs::nvs_keys;
 use plant_tower_rs::utils::Timer;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
-use std::rc::Rc;
 
 enum Components {
     EnablePumpSwitch,
@@ -82,8 +80,9 @@ fn main() {
     let mut temperature_sensor = hardware::OneWireTemperatureSensor::new(peripherals.pins.gpio23);
     let mut water_level_sensor =
         hardware::DigitalInput::new(peripherals.pins.gpio22, true, true, 20);
-    let (mut mqtt_temperature_sensor, mut mqtt_water_level_sensor, mut mqtt_pump_countdown) = create_sensors();
-    let (enable_pump_switch, pump_switch, pump) = create_pump(peripherals.pins.gpio13);
+    let (mut mqtt_temperature_sensor, mut mqtt_water_level_sensor, mut mqtt_pump_countdown) =
+        create_sensors();
+    let (mut enable_pump_switch, mut pump_switch, pump) = create_pump(peripherals.pins.gpio13);
 
     let (device, credentials) = if let Ok(config) = nvs_config_manager.load_all_properties() {
         if let Err(e) = wifi_manager.to_client_mode(
@@ -97,8 +96,8 @@ fn main() {
             config.get(ConfigKey::MqttDevName).to_string(),
             String::from("Myself"),
         );
-        tower.register_actuator(Rc::clone(&enable_pump_switch) as Rc<RefCell<dyn ActuatorComponent>>);
-        tower.register_actuator(Rc::clone(&pump_switch) as Rc<RefCell<dyn ActuatorComponent>>);
+        tower.register_actuator(&enable_pump_switch);
+        tower.register_actuator(&pump_switch);
         tower.register_sensor(&mqtt_temperature_sensor);
         tower.register_sensor(&mqtt_water_level_sensor);
         tower.register_sensor(&mqtt_pump_countdown);
@@ -115,11 +114,9 @@ fn main() {
     let mut connection_manager = ConnectionManager::new(wifi_manager, device, credentials);
 
     enable_pump_switch
-        .borrow_mut()
         .switch_on(connection_manager.mqtt_client())
         .unwrap_or_else(|err| log::warn!("Failed to enable pump: {}", err));
     pump_switch
-        .borrow_mut()
         .switch_on(connection_manager.mqtt_client())
         .unwrap_or_else(|err| log::warn!("Failed to switch on pump: {}", err));
     let mut pump_controller = PumpController::new(enable_pump_switch, pump_switch, pump);
@@ -176,8 +173,7 @@ fn main() {
                 None => {
                     temperature_error = true;
                     last_temperature = None;
-                    mqtt_temperature_sensor
-                        .clear_value(connection_manager.mqtt_client());
+                    mqtt_temperature_sensor.clear_value(connection_manager.mqtt_client());
                 }
             };
             mqtt_water_level_sensor.set_value(
@@ -194,6 +190,13 @@ fn main() {
         });
 
         pump_controller.tick(connection_manager.mqtt_client(), last_temperature);
+        while let Some((topic, payload)) = connection_manager.next_message() {
+            pump_controller.dispatch_command(
+                &topic,
+                &payload,
+                &mut connection_manager.mqtt_client(),
+            );
+        }
 
         let pump_on = pump_controller.is_on();
         let pump_enabled = pump_controller.is_enabled();
@@ -277,21 +280,17 @@ fn create_sensors() -> (mqtt::Sensor<f32>, mqtt::Sensor<bool>, mqtt::Sensor<u64>
 
 fn create_pump(
     pin: impl esp_idf_hal::gpio::OutputPin + 'static,
-) -> (
-    Rc<RefCell<mqtt::Switch>>,
-    Rc<RefCell<mqtt::Switch>>,
-    hardware::DigitalOutput<'static>,
-) {
-    let enable_pump_switch = Rc::new(RefCell::new(mqtt::Switch::new(
+) -> (mqtt::Switch, mqtt::Switch, hardware::DigitalOutput<'static>) {
+    let enable_pump_switch = mqtt::Switch::new(
         Components::EnablePumpSwitch.to_string(),
         String::from("Enable Pump"),
         HashMap::from([(String::from("icon"), String::from("mdi:power"))]),
-    )));
-    let pump_switch = Rc::new(RefCell::new(mqtt::Switch::new(
+    );
+    let pump_switch = mqtt::Switch::new(
         Components::PumpSwitch.to_string(),
         String::from("Pump"),
         HashMap::from([(String::from("icon"), String::from("mdi:pump"))]),
-    )));
+    );
     let pump = hardware::DigitalOutput::new(pin);
     (enable_pump_switch, pump_switch, pump)
 }

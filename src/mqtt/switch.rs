@@ -100,15 +100,24 @@ impl ActuatorComponent for Switch {
         Some(&self.command_topic)
     }
 
-    fn process_message(&mut self, mqtt_client: &mut EspMqttClient, payload: &str) -> Result<()> {
+    fn process_command(
+        &mut self,
+        topic: &str,
+        payload: &str,
+        mqtt_client: Option<&mut EspMqttClient>,
+    ) {
+        if topic != self.command_topic {
+            return;
+        }
         if payload.eq(&SwitchState::On.to_string()) {
-            self.switch_on(Some(mqtt_client))?;
+            self.switch_on(mqtt_client)
+                .unwrap_or_else(|e| log::warn!("Failed to switch on: {}", e));
         } else if payload.eq(&SwitchState::Off.to_string()) {
-            self.switch_off(Some(mqtt_client))?;
+            self.switch_off(mqtt_client)
+                .unwrap_or_else(|e| log::warn!("Failed to switch off: {}", e));
         } else {
             log::warn!("Ignoring unknown payload {}", payload);
         }
-        Ok(())
     }
 
     fn to_discovery_payload(&self) -> json::JsonValue {

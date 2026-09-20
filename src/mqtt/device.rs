@@ -1,17 +1,14 @@
-use anyhow::Result;
 use esp_idf_svc::mqtt::client::EspMqttClient;
 use esp_idf_svc::mqtt::client::QoS;
 use json::{object, JsonValue};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 pub struct Device {
     mqtt_config: MqttConfig,
     discovery_topic: String,
     manufacturer: String,
-    actuator_components: HashMap<String, Rc<RefCell<dyn ActuatorComponent>>>,
-    sensor_payloads: HashMap<String, JsonValue>,
+    component_discovery_payloads: HashMap<String, JsonValue>,
+    command_topics: Vec<String>,
 }
 
 impl Device {
@@ -23,19 +20,26 @@ impl Device {
             mqtt_config,
             discovery_topic,
             manufacturer,
-            actuator_components: HashMap::new(),
-            sensor_payloads: HashMap::new(),
+            component_discovery_payloads: HashMap::new(),
+            command_topics: Vec::new(),
         }
     }
 
-    pub fn register_actuator(&mut self, component: Rc<RefCell<dyn ActuatorComponent>>) {
-        let unique_id = component.borrow().unique_id().clone();
-        self.actuator_components.insert(unique_id, component);
+    pub fn register_actuator(&mut self, component: &dyn ActuatorComponent) {
+        self.component_discovery_payloads.insert(
+            component.unique_id().clone(),
+            component.to_discovery_payload(),
+        );
+        if let Some(topic) = component.command_topic() {
+            self.command_topics.push(topic.clone());
+        }
     }
 
     pub fn register_sensor(&mut self, component: &dyn SensorComponent) {
-        self.sensor_payloads
-            .insert(component.unique_id().clone(), component.to_discovery_payload());
+        self.component_discovery_payloads.insert(
+            component.unique_id().clone(),
+            component.to_discovery_payload(),
+        );
     }
 
     pub fn send_discovery_message(&mut self, mqtt_client: &mut EspMqttClient) {
@@ -71,50 +75,19 @@ impl Device {
             },
             cmps: {}
         };
-        self.actuator_components.values().for_each(|component| {
-            let component_payload = component.borrow().to_discovery_payload();
-            payload["cmps"][component.borrow().unique_id()] = component_payload;
-        });
-        self.sensor_payloads.iter().for_each(|(unique_id, component_payload)| {
-            payload["cmps"][unique_id.as_str()] = component_payload.clone();
-        });
+        self.component_discovery_payloads
+            .iter()
+            .for_each(|(unique_id, component_payload)| {
+                payload["cmps"][unique_id.as_str()] = component_payload.clone();
+            });
         payload
     }
 
     pub fn subscribe_command_topics(&self, mqtt_client: &mut EspMqttClient) {
-        for component in self.actuator_components.values() {
-            if let Some(topic) = component.borrow().command_topic().cloned() {
-                mqtt_client
-                    .subscribe(&topic, QoS::ExactlyOnce)
-                    .unwrap_or_else(|_| panic!("Failed to subscribe to command topic {}", topic));
-            }
-        }
-    }
-
-    pub fn dispatch_event(&mut self, mqtt_client: &mut EspMqttClient, topic: &str, payload: &str) {
-        let unique_id = match topic.split("/").nth(2) {
-            Some(unique_id) => String::from(unique_id),
-            None => {
-                log::warn!("Topic {} does not match expected pattern", topic);
-                return;
-            }
-        };
-        match self.actuator_components.get_mut(&unique_id) {
-            Some(component) => match component.borrow_mut().process_message(mqtt_client, payload) {
-                Ok(_) => (),
-                Err(err) => log::warn!(
-                    "Component {} failed to process event with payload\n{}\nwith error {}",
-                    unique_id,
-                    payload,
-                    err
-                ),
-            },
-            None => log::warn!(
-                "Received event with unknown unique id {} in topic {}. Payload is\n{}",
-                unique_id,
-                topic,
-                json::stringify_pretty(payload, 2),
-            ),
+        for topic in &self.command_topics {
+            mqtt_client
+                .subscribe(topic, QoS::ExactlyOnce)
+                .unwrap_or_else(|_| panic!("Failed to subscribe to command topic {}", topic));
         }
     }
 }
@@ -159,7 +132,12 @@ pub trait ActuatorComponent {
     fn state_topic(&self) -> &String;
     fn command_topic(&self) -> Option<&String>;
     fn to_discovery_payload(&self) -> JsonValue;
-    fn process_message(&mut self, mqtt_client: &mut EspMqttClient, payload: &str) -> Result<()>;
+    fn process_command(
+        &mut self,
+        topic: &str,
+        payload: &str,
+        mqtt_client: Option<&mut EspMqttClient>,
+    );
 }
 
 pub trait SensorComponent {

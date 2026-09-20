@@ -43,7 +43,6 @@ impl ConnectionManager {
 
     pub fn tick(&mut self) {
         self.handle_wifi_state();
-        self.dispatch_messages();
     }
 
     fn handle_wifi_state(&mut self) {
@@ -72,14 +71,10 @@ impl ConnectionManager {
         }
     }
 
-    fn dispatch_messages(&mut self) {
-        if let (Some((ref mut client, ref receiver)), Some(ref mut device)) =
-            (&mut self.mqtt, &mut self.device)
-        {
-            if let Ok((topic, payload)) = receiver.try_recv() {
-                device.dispatch_event(client, topic.as_str(), payload.as_str());
-            }
-        }
+    pub fn next_message(&mut self) -> Option<(String, String)> {
+        self.mqtt
+            .as_ref()
+            .and_then(|(_, receiver)| receiver.try_recv().ok())
     }
 
     pub fn mqtt_client(&mut self) -> Option<&mut EspMqttClient<'static>> {
