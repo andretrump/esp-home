@@ -168,6 +168,16 @@ fn main() {
             pump_controller.toggle_enabled(connection_manager.mqtt_client());
         }
 
+        while let Some((topic, payload)) = connection_manager.next_message() {
+            pump_controller.dispatch_command(
+                &topic,
+                &payload,
+                &mut connection_manager.mqtt_client(),
+            );
+        }
+
+        pump_controller.tick(connection_manager.mqtt_client(), last_temperature);
+
         sensor_refresh_timer.run(|| {
             match temperature_sensor.get_temperature() {
                 Some(temperature) => {
@@ -194,15 +204,6 @@ fn main() {
                 connection_manager.mqtt_client(),
             );
         });
-
-        pump_controller.tick(connection_manager.mqtt_client(), last_temperature);
-        while let Some((topic, payload)) = connection_manager.next_message() {
-            pump_controller.dispatch_command(
-                &topic,
-                &payload,
-                &mut connection_manager.mqtt_client(),
-            );
-        }
 
         let pump_on = pump_controller.is_on();
         let pump_enabled = pump_controller.is_enabled();
