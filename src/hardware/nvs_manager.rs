@@ -3,7 +3,7 @@ use std::{collections::HashMap, marker::PhantomData};
 
 #[macro_export]
 macro_rules! nvs_keys {
-    (enum $name:ident { $($variant:ident => $key:literal),* $(,)? }) => {
+    ($name:ident { $($variant:ident => $key:literal),* $(,)? }) => {
         #[derive(Copy, Clone, Debug)]
         pub enum $name {
             $($variant,)*

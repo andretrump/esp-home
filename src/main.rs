@@ -13,30 +13,29 @@ use plant_tower_rs::mqtt;
 use plant_tower_rs::nvs_keys;
 use plant_tower_rs::utils::Timer;
 use std::collections::HashMap;
-use std::fmt;
 
-enum Components {
+#[derive(strum_macros::Display)]
+enum Component {
+    #[strum(serialize = "enable_pump_switch")]
     EnablePumpSwitch,
+    #[strum(serialize = "pump_switch")]
     PumpSwitch,
+    #[strum(serialize = "temperature_sensor")]
     TemperatureSensor,
+    #[strum(serialize = "water_level_sensor")]
     WaterLevelSensor,
+    #[strum(serialize = "pump_countdown")]
     PumpCountdown,
 }
 
-impl fmt::Display for Components {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Components::EnablePumpSwitch => write!(f, "plant_tower_rs_enable_pump_switch"),
-            Components::PumpSwitch => write!(f, "plant_tower_rs_pump_switch"),
-            Components::TemperatureSensor => write!(f, "plant_tower_rs_temperature_sensor"),
-            Components::WaterLevelSensor => write!(f, "plant_tower_rs_water_level_sensor"),
-            Components::PumpCountdown => write!(f, "plant_tower_rs_pump_countdown"),
-        }
+impl Component {
+    fn id(&self, device_id: &str) -> String {
+        format!("{}_{}", device_id, self)
     }
 }
 
 nvs_keys! {
-    enum ConfigKey {
+    ConfigKey {
         WifiSsid => "wifi_ssid",
         WifiPassword => "wifi_password",
         MqttHost => "mqtt_host",
@@ -49,7 +48,7 @@ nvs_keys! {
 }
 
 nvs_keys! {
-    enum StateKey {
+    StateKey {
         ForcePortal => "force_portal"
     }
 }
@@ -80,11 +79,18 @@ fn main() {
     let mut temperature_sensor = hardware::OneWireTemperatureSensor::new(peripherals.pins.gpio23);
     let mut water_level_sensor =
         hardware::DigitalInput::new(peripherals.pins.gpio22, true, true, 20);
-    let (mut mqtt_temperature_sensor, mut mqtt_water_level_sensor, mut mqtt_pump_countdown) =
-        create_sensors();
-    let (mut enable_pump_switch, mut pump_switch, pump) = create_pump(peripherals.pins.gpio13);
+    let config = nvs_config_manager.load_all_properties().ok();
+    let device_id = config
+        .as_ref()
+        .map(|c| c.get(ConfigKey::MqttDevId).to_string())
+        .unwrap_or_default();
 
-    let (device, credentials) = if let Ok(config) = nvs_config_manager.load_all_properties() {
+    let (mut mqtt_temperature_sensor, mut mqtt_water_level_sensor, mut mqtt_pump_countdown) =
+        create_sensors(&device_id);
+    let (mut enable_pump_switch, mut pump_switch, pump) =
+        create_pump(&device_id, peripherals.pins.gpio13);
+
+    let (device, credentials) = if let Some(config) = config {
         if let Err(e) = wifi_manager.to_client_mode(
             config.get(ConfigKey::WifiSsid),
             config.get(ConfigKey::WifiPassword),
@@ -246,9 +252,9 @@ fn run_captive_portal_if_needed(
     nvs_state_manager.store_property(StateKey::ForcePortal, "0");
 }
 
-fn create_sensors() -> (mqtt::Sensor<f32>, mqtt::Sensor<bool>, mqtt::Sensor<u64>) {
+fn create_sensors(device_id: &str) -> (mqtt::Sensor<f32>, mqtt::Sensor<bool>, mqtt::Sensor<u64>) {
     let temperature = mqtt::Sensor::new(
-        Components::TemperatureSensor.to_string(),
+        Component::TemperatureSensor.id(device_id),
         String::from("Temperature"),
         HashMap::new(),
         mqtt::SensorKind::Measurement {
@@ -258,7 +264,7 @@ fn create_sensors() -> (mqtt::Sensor<f32>, mqtt::Sensor<bool>, mqtt::Sensor<u64>
         },
     );
     let water_level = mqtt::Sensor::<bool>::new(
-        Components::WaterLevelSensor.to_string(),
+        Component::WaterLevelSensor.id(device_id),
         String::from("Water level low"),
         HashMap::from([(String::from("icon"), String::from("mdi:water-alert"))]),
         mqtt::SensorKind::Binary {
@@ -266,7 +272,7 @@ fn create_sensors() -> (mqtt::Sensor<f32>, mqtt::Sensor<bool>, mqtt::Sensor<u64>
         },
     );
     let pump_countdown = mqtt::Sensor::<u64>::new(
-        Components::PumpCountdown.to_string(),
+        Component::PumpCountdown.id(device_id),
         String::from("Pump Countdown"),
         HashMap::new(),
         mqtt::SensorKind::Measurement {
@@ -279,15 +285,16 @@ fn create_sensors() -> (mqtt::Sensor<f32>, mqtt::Sensor<bool>, mqtt::Sensor<u64>
 }
 
 fn create_pump(
+    device_id: &str,
     pin: impl esp_idf_hal::gpio::OutputPin + 'static,
 ) -> (mqtt::Switch, mqtt::Switch, hardware::DigitalOutput<'static>) {
     let enable_pump_switch = mqtt::Switch::new(
-        Components::EnablePumpSwitch.to_string(),
+        Component::EnablePumpSwitch.id(device_id),
         String::from("Enable Pump"),
         HashMap::from([(String::from("icon"), String::from("mdi:power"))]),
     );
     let pump_switch = mqtt::Switch::new(
-        Components::PumpSwitch.to_string(),
+        Component::PumpSwitch.id(device_id),
         String::from("Pump"),
         HashMap::from([(String::from("icon"), String::from("mdi:pump"))]),
     );

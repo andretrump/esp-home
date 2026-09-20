@@ -1,5 +1,4 @@
 use crate::mqtt::{device::MqttConfig, ActuatorComponent};
-use anyhow::Result;
 use esp_idf_hal::sys::EspError;
 use esp_idf_svc::mqtt::client::EspMqttClient;
 use esp_idf_svc::mqtt::client::QoS;
