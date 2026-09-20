@@ -1,7 +1,7 @@
-use crate::hardware;
-use crate::mqtt;
-use crate::mqtt::ActuatorComponent;
-use crate::utils::Timer;
+use esp_home_kit::hardware;
+use esp_home_kit::mqtt;
+use esp_home_kit::mqtt::ActuatorComponent;
+use esp_home_kit::utils::Timer;
 use esp_idf_svc::mqtt::client::EspMqttClient;
 
 pub const PUMP_ON_SECS: u64 = 60;

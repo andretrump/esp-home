@@ -13,11 +13,6 @@ pub mod captive_portal {
     pub mod http_server;
 }
 
-pub mod controllers {
-    pub mod pump_controller;
-    pub use pump_controller::PumpController;
-}
-
 pub mod hardware {
     mod led;
     pub use led::Led;

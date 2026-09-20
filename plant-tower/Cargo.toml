@@ -1,0 +1,25 @@
+[package]
+name = "plant-tower"
+version = "0.1.0"
+authors = ["andretrump <mail@atrump.de>"]
+edition = "2021"
+rust-version = "1.82"
+
+[[bin]]
+name = "plant-tower"
+harness = false
+
+[dependencies]
+log = "0.4"
+esp-idf-svc = { version = "0.52.1", features = [
+  "critical-section",
+  "embassy-time-driver",
+  "embassy-sync",
+] }
+esp-idf-hal = "0.46.2"
+strum_macros = "0.28.0"
+esp-home-kit = { path = "../esp-home-kit" }
+
+[build-dependencies]
+embuild = "0.33"
+toml-cfg = "0.2.0"

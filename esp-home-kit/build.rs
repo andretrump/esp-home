@@ -1,8 +1,6 @@
 use std::{env, fs, path::Path};
 
 fn main() {
-    embuild::espidf::sysenv::output();
-
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set, is this being run by cargo?");
     let out_dir = Path::new(&out_dir);
     let html = fs::read_to_string("./src/captive_portal/web/index.html")
