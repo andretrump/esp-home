@@ -11,7 +11,7 @@ pub const PUMP_OFF_SECS: u64 = 40 * 60;
 pub struct PumpController {
     enable_switch: Rc<RefCell<mqtt::Switch>>,
     pump_switch: Rc<RefCell<mqtt::Switch>>,
-    output: Rc<RefCell<hardware::DigitalOutput<'static>>>,
+    output: hardware::DigitalOutput<'static>,
     on_timer: Timer,
     off_timer: Timer,
     prev_enabled: bool,
@@ -22,7 +22,7 @@ impl PumpController {
     pub fn new(
         enable_switch: Rc<RefCell<mqtt::Switch>>,
         pump_switch: Rc<RefCell<mqtt::Switch>>,
-        output: Rc<RefCell<hardware::DigitalOutput<'static>>>,
+        output: hardware::DigitalOutput<'static>,
     ) -> Self {
         Self {
             enable_switch,
@@ -108,9 +108,9 @@ impl PumpController {
         let pump_on = self.pump_switch.borrow().is_on();
         let pump_enabled = self.enable_switch.borrow().is_on();
         if pump_on && pump_enabled {
-            self.output.borrow_mut().switch_on();
+            self.output.switch_on();
         } else {
-            self.output.borrow_mut().switch_off();
+            self.output.switch_off();
         }
     }
 }

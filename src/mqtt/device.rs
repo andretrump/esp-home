@@ -11,7 +11,7 @@ pub struct Device {
     discovery_topic: String,
     manufacturer: String,
     actuator_components: HashMap<String, Rc<RefCell<dyn ActuatorComponent>>>,
-    sensor_components: HashMap<String, Rc<RefCell<dyn SensorComponent>>>,
+    sensor_payloads: HashMap<String, JsonValue>,
 }
 
 impl Device {
@@ -24,7 +24,7 @@ impl Device {
             discovery_topic,
             manufacturer,
             actuator_components: HashMap::new(),
-            sensor_components: HashMap::new(),
+            sensor_payloads: HashMap::new(),
         }
     }
 
@@ -33,9 +33,9 @@ impl Device {
         self.actuator_components.insert(unique_id, component);
     }
 
-    pub fn register_sensor(&mut self, component: Rc<RefCell<dyn SensorComponent>>) {
-        let unique_id = component.borrow().unique_id().clone();
-        self.sensor_components.insert(unique_id, component);
+    pub fn register_sensor(&mut self, component: &dyn SensorComponent) {
+        self.sensor_payloads
+            .insert(component.unique_id().clone(), component.to_discovery_payload());
     }
 
     pub fn send_discovery_message(&mut self, mqtt_client: &mut EspMqttClient) {
@@ -75,9 +75,8 @@ impl Device {
             let component_payload = component.borrow().to_discovery_payload();
             payload["cmps"][component.borrow().unique_id()] = component_payload;
         });
-        self.sensor_components.values().for_each(|component| {
-            let component_payload = component.borrow().to_discovery_payload();
-            payload["cmps"][component.borrow().unique_id()] = component_payload;
+        self.sensor_payloads.iter().for_each(|(unique_id, component_payload)| {
+            payload["cmps"][unique_id.as_str()] = component_payload.clone();
         });
         payload
     }
