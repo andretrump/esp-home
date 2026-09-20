@@ -18,7 +18,11 @@ impl<'a> OneWireTemperatureSensor<'a> {
             let mut wire = OneWire::new(&mut pin_driver, false);
             wire.reset(&mut delay).unwrap_or(false)
         });
-        assert!(present, "No OneWire device on pin {} - check wiring and pull-up resistor", pin_number);
+        assert!(
+            present,
+            "No OneWire device on pin {} - check wiring and pull-up resistor",
+            pin_number
+        );
         Self { pin: pin_driver }
     }
 

@@ -107,6 +107,10 @@ impl WifiManager {
         log::info!("Starting Wifi...");
         self.wifi.start().expect("Failed to start Wifi");
 
+        unsafe {
+            esp_idf_svc::sys::esp_wifi_set_ps(esp_idf_svc::sys::wifi_ps_type_t_WIFI_PS_NONE);
+        }
+
         log::info!("Scanning for networks...");
         let access_point_infos = self.wifi.scan().expect("Failed to scan for Wifi networks");
         let ours = access_point_infos.into_iter().find(|a| a.ssid == ssid);

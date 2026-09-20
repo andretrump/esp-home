@@ -178,6 +178,14 @@ fn main() {
             );
         }
 
+        if connection_manager.take_reconnected() {
+            log::info!("Republishing all states after reconnect.");
+            mqtt_temperature_sensor.publish_state(connection_manager.mqtt_client());
+            mqtt_water_level_sensor.publish_state(connection_manager.mqtt_client());
+            mqtt_pump_countdown.publish_state(connection_manager.mqtt_client());
+            pump_controller.publish_states(connection_manager.mqtt_client());
+        }
+
         pump_controller.tick(connection_manager.mqtt_client(), last_temperature);
 
         sensor_refresh_timer.run(|| {

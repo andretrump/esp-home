@@ -65,12 +65,14 @@ impl<'d> LedGroup<'d> {
     }
 
     fn startup_fade_down(&mut self) {
-        self.green.fade_logarithmic_to_percent(0, STARTUP_INTERVAL_MS);
+        self.green
+            .fade_logarithmic_to_percent(0, STARTUP_INTERVAL_MS);
         if self.green.current_percentage() < STARTUP_SWITCH_TO_NEXT_DOWN {
             self.red.fade_logarithmic_to_percent(0, STARTUP_INTERVAL_MS);
         }
         if self.red.current_percentage() < STARTUP_SWITCH_TO_NEXT_DOWN {
-            self.blue.fade_logarithmic_to_percent(0, STARTUP_INTERVAL_MS);
+            self.blue
+                .fade_logarithmic_to_percent(0, STARTUP_INTERVAL_MS);
         }
         if self.blue.current_percentage() == 0 {
             self.startup_animation_step += 1;

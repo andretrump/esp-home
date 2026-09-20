@@ -38,7 +38,7 @@ pub mod hardware {
 
 pub mod mqtt {
     mod setup;
-    pub use setup::setup;
+    pub use setup::{setup, MqttEvent};
 
     mod device;
     pub use device::{ActuatorComponent, Device, SensorComponent};

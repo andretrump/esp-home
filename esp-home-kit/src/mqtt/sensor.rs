@@ -52,17 +52,22 @@ impl<T: Into<json::JsonValue> + PartialEq + Clone> Sensor<T> {
         if self.value.as_ref() == Some(&value) {
             return;
         }
-        self.value = Some(value.clone());
-        if let Some(mqtt_client) = maybe_mqtt_client {
-            let payload = self.to_state_payload(value);
-            if let Err(e) = mqtt_client.publish(
-                self.mqtt_config.state_topic(),
-                QoS::AtLeastOnce,
-                true,
-                payload.as_bytes(),
-            ) {
-                log::warn!("Failed to publish sensor state: {}", e);
-            }
+        self.value = Some(value);
+        self.publish_state(maybe_mqtt_client);
+    }
+
+    pub fn publish_state(&self, maybe_mqtt_client: Option<&mut EspMqttClient>) {
+        let (Some(mqtt_client), Some(value)) = (maybe_mqtt_client, self.value.clone()) else {
+            return;
+        };
+        let payload = self.to_state_payload(value);
+        if let Err(e) = mqtt_client.publish(
+            self.mqtt_config.state_topic(),
+            QoS::AtMostOnce,
+            true,
+            payload.as_bytes(),
+        ) {
+            log::warn!("Failed to publish sensor state: {}", e);
         }
     }
 
@@ -70,7 +75,7 @@ impl<T: Into<json::JsonValue> + PartialEq + Clone> Sensor<T> {
         self.value = None;
         if let Some(mqtt_client) = maybe_mqtt_client {
             if let Err(e) =
-                mqtt_client.publish(self.mqtt_config.state_topic(), QoS::AtLeastOnce, true, b"")
+                mqtt_client.publish(self.mqtt_config.state_topic(), QoS::AtMostOnce, true, b"")
             {
                 log::warn!("Failed to clear sensor state: {}", e);
             }

@@ -95,6 +95,11 @@ impl PumpController {
             .process_command(topic, payload, mqtt_client.as_deref_mut());
     }
 
+    pub fn publish_states(&self, mut mqtt_client: Option<&mut EspMqttClient>) {
+        self.enable_switch.publish_state(mqtt_client.as_deref_mut());
+        self.pump_switch.publish_state(mqtt_client);
+    }
+
     pub fn toggle_enabled(&mut self, mqtt_client: Option<&mut EspMqttClient>) {
         self.enable_switch
             .toggle(mqtt_client)
@@ -112,14 +117,15 @@ impl PumpController {
     pub fn countdown_secs(&self) -> u64 {
         let pump_enabled = self.enable_switch.is_on();
         let pump_is_on = self.pump_switch.is_on();
-        if !pump_enabled {
+        let remaining = if !pump_enabled {
             0
         } else if pump_is_on {
             PUMP_ON_SECS.saturating_sub(self.on_timer.elapsed_secs())
         } else {
             self.current_off_secs
                 .saturating_sub(self.off_timer.elapsed_secs())
-        }
+        };
+        remaining / 5 * 5
     }
 }
 

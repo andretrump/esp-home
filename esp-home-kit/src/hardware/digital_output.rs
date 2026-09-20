@@ -1,5 +1,5 @@
-use std::time::Instant;
 use esp_idf_hal::gpio::{Output, OutputPin, PinDriver};
+use std::time::Instant;
 
 pub struct DigitalOutput<'a> {
     pin_driver: PinDriver<'a, Output>,
@@ -11,7 +11,8 @@ impl<'a> DigitalOutput<'a> {
     pub fn new<P: OutputPin + 'a>(pin: P) -> Self {
         let pin_number = pin.pin();
         Self {
-            pin_driver: PinDriver::output(pin).unwrap_or_else(|_| panic!("Failed to initialize pin {}", pin_number)),
+            pin_driver: PinDriver::output(pin)
+                .unwrap_or_else(|_| panic!("Failed to initialize pin {}", pin_number)),
             time_switched_on: None,
             time_switched_off: None,
         }
@@ -23,7 +24,9 @@ impl<'a> DigitalOutput<'a> {
 
     pub fn switch_on(&mut self) {
         let switched = self.pin_driver.is_set_low();
-        self.pin_driver.set_high().unwrap_or_else(|_| panic!("Failed to switch on pin {}", self.pin_driver.pin()));
+        self.pin_driver
+            .set_high()
+            .unwrap_or_else(|_| panic!("Failed to switch on pin {}", self.pin_driver.pin()));
         if switched {
             self.time_switched_on = Some(Instant::now());
         }
@@ -31,7 +34,9 @@ impl<'a> DigitalOutput<'a> {
 
     pub fn switch_off(&mut self) {
         let switched = self.pin_driver.is_set_high();
-        self.pin_driver.set_low().unwrap_or_else(|_| panic!("Failed to switch off pin {}", self.pin_driver.pin()));
+        self.pin_driver
+            .set_low()
+            .unwrap_or_else(|_| panic!("Failed to switch off pin {}", self.pin_driver.pin()));
         if switched {
             self.time_switched_off = Some(Instant::now());
         }

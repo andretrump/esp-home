@@ -9,6 +9,7 @@ pub struct Device {
     manufacturer: String,
     component_discovery_payloads: HashMap<String, JsonValue>,
     command_topics: Vec<String>,
+    discovery_sent: bool,
 }
 
 impl Device {
@@ -22,6 +23,7 @@ impl Device {
             manufacturer,
             component_discovery_payloads: HashMap::new(),
             command_topics: Vec::new(),
+            discovery_sent: false,
         }
     }
 
@@ -43,6 +45,9 @@ impl Device {
     }
 
     pub fn send_discovery_message(&mut self, mqtt_client: &mut EspMqttClient) {
+        if self.discovery_sent {
+            return;
+        }
         let payload = self.build_discovery_payload();
         log::info!(
             "Sending discovery message to topic {} with payload\n{}",
@@ -50,14 +55,16 @@ impl Device {
             json::stringify_pretty(payload.clone(), 2)
         );
         let payload = json::stringify(payload);
-        mqtt_client
-            .publish(
-                &self.discovery_topic,
-                QoS::ExactlyOnce,
-                true,
-                payload.as_bytes(),
-            )
-            .expect("Failed to send MQTT discovery message");
+        if let Err(e) = mqtt_client.publish(
+            &self.discovery_topic,
+            QoS::AtLeastOnce,
+            true,
+            payload.as_bytes(),
+        ) {
+            log::error!("Failed to send MQTT discovery message: {}", e);
+        } else {
+            self.discovery_sent = true;
+        }
     }
 
     fn build_discovery_payload(&self) -> JsonValue {
@@ -85,9 +92,9 @@ impl Device {
 
     pub fn subscribe_command_topics(&self, mqtt_client: &mut EspMqttClient) {
         for topic in &self.command_topics {
-            mqtt_client
-                .subscribe(topic, QoS::ExactlyOnce)
-                .unwrap_or_else(|_| panic!("Failed to subscribe to command topic {}", topic));
+            if let Err(e) = mqtt_client.subscribe(topic, QoS::AtLeastOnce) {
+                log::error!("Failed to subscribe to command topic {}: {}", topic, e);
+            }
         }
     }
 }

@@ -71,6 +71,20 @@ impl Switch {
         Ok(())
     }
 
+    pub fn publish_state(&self, maybe_mqtt_client: Option<&mut EspMqttClient>) {
+        let Some(mqtt_client) = maybe_mqtt_client else {
+            return;
+        };
+        let state = if self.is_on {
+            SwitchState::On
+        } else {
+            SwitchState::Off
+        };
+        if let Err(e) = self.send_state(mqtt_client, state) {
+            log::warn!("Failed to publish switch state: {}", e);
+        }
+    }
+
     fn send_state(
         &self,
         mqtt_client: &mut EspMqttClient,
